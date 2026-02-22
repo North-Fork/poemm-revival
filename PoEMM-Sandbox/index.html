@@ -15,12 +15,23 @@ html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
   font-size: 12px; padding: 10px; z-index: 10;
   border-right: 1px solid #222;
 }
-#panel h3 {
+#panel h3, .sec-hd {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
   color: #555; margin: 12px 0 5px;
   border-top: 1px solid #1e1e1e; padding-top: 8px;
+  cursor: pointer; user-select: none;
 }
-#panel h3:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+#panel h3:first-child, .sec-hd:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.sec-hd::after  { content: ' ▾'; float: right; }
+.sec-hd.closed::after { content: ' ▸'; }
+.sec-bd.hidden  { display: none; }
+.beh-params { padding: 2px 0 5px 12px; border-left: 1px solid #1e1e1e; margin-bottom: 3px; }
+.color-row  { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.color-row label { font-size: 10px; color: #888; flex: 1; }
+.color-row input[type=color] {
+  width: 34px; height: 20px; padding: 1px 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
+}
 
 #poem-input {
   width: 100%; height: 76px; background: #181818; color: #ddd;
@@ -67,24 +78,10 @@ canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: bloc
 <body>
 
 <div id="panel">
-  <h3>Text</h3>
   <textarea id="poem-input">Test the glyph level here
 And the word level too
 Every line a new passage
 The whole book speaks</textarea>
-
-  <h3>Glyph Behaviours</h3>
-  <div id="glyph-behaviors"></div>
-
-  <h3>Word Behaviours</h3>
-  <div id="word-behaviors"></div>
-
-  <h3>Line Behaviours</h3>
-  <div id="line-behaviors"></div>
-
-  <h3>Params</h3>
-  <div id="params"></div>
-
   <button id="rebuild-btn">Rebuild</button>
 </div>
 
@@ -108,7 +105,7 @@ const P = {
   rotBackVel:      Math.PI / 4,
   rotToVel:        Math.PI,
   pathAlpha:       0.4,
-  fontSize:        18,
+  fontSize:        24,
   shakeAmount:     3,
   shakeFreq:       20,
   pulseScale:      0.2,
@@ -116,6 +113,24 @@ const P = {
   flickerRate:     0.05,
   gravityStrength: 60,
   gravityBounce:   0.5,
+  fontFillColor:   '#ffffff',
+  fontOutlineColor:'#000000',
+  fontOutlineWidth: 0,
+  pSize:           3,
+  pDensity:        70,
+  pSpeed:          40,
+  pPerc:           10,
+  pSep:            1.5,
+  pAlign:          1.0,
+  pCohes:          1.0,
+  pRound:          1.0,
+  repelRadius:     80,
+  repelStrength:   400,
+  repelDecay:      3,
+  thermalRise:     40,
+  thermalShimmer:  3,
+  driftCloud:      40,
+  driftVelocity:   80,
 };
 
 // ── Behaviour Registry ────────────────────────────────────────────────────────
@@ -131,6 +146,14 @@ const BEHAVIOR_REGISTRY = [
     description: 'Random opacity snapping at flickerRate probability per frame' },
   { name: 'Gravity',    level: 'glyph', instance: null, enabledByDefault: false,
     description: 'Downward acceleration with bounce at canvas bottom' },
+  { name: 'Repel',      level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Glyphs scatter from pointer; Swim or Drift returns them home' },
+  { name: 'Thermal',    level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Glyphs float upward with gentle horizontal heat shimmer' },
+  { name: 'Drift',      level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Smooth layered-sine motion; organic fluid alternative to Swim' },
+  { name: 'Particle',   level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Replace glyph with flocking particles shaped by the letter mask' },
   { name: 'Wander',     level: 'word',  instance: null, enabledByDefault: false,
     description: 'Word-level circular drift; child glyphs inherit offset' },
   { name: 'PathAssign', level: 'line',  instance: null, enabledByDefault: true,
@@ -138,24 +161,43 @@ const BEHAVIOR_REGISTRY = [
 ];
 
 // ── Parameter Registry ────────────────────────────────────────────────────────
+// group: behaviour name → shown under that behaviour's checkbox
+//        'font'         → shown in Font section
+//        'system'       → shown in collapsed System section
 // rebuild:true → slider change triggers _build(); otherwise live P update only.
 const PARAM_REGISTRY = [
-  { key: 'swimVelocity',    label: 'swimVelocity',    min: 1,   max: 100,          step: 1,     rebuild: false },
-  { key: 'swimCloudSize',   label: 'swimCloud',       min: 0,   max: 80,           step: 1,     rebuild: false },
-  { key: 'followVelocity',  label: 'followVelocity',  min: 10,  max: 500,          step: 5,     rebuild: false },
-  { key: 'pathSpacing',     label: 'pathSpacing',     min: 5,   max: 50,           step: 1,     rebuild: true  },
-  { key: 'bgOpacity',       label: 'bgOpacity',       min: 0,   max: 1,            step: 0.01,  rebuild: false },
-  { key: 'fgOpacity',       label: 'fgOpacity',       min: 0,   max: 1,            step: 0.01,  rebuild: false },
-  { key: 'rotBackVel',      label: 'rotBackVel',      min: 0,   max: Math.PI * 2,  step: 0.05,  rebuild: false },
-  { key: 'rotToVel',        label: 'rotToVel',        min: 0,   max: Math.PI * 4,  step: 0.05,  rebuild: false },
-  { key: 'fontSize',        label: 'fontSize',        min: 10,  max: 48,           step: 1,     rebuild: true  },
-  { key: 'shakeAmount',     label: 'shakeAmount',     min: 0,   max: 20,           step: 0.5,   rebuild: false },
-  { key: 'shakeFreq',       label: 'shakeFreq',       min: 1,   max: 60,           step: 1,     rebuild: false },
-  { key: 'pulseScale',      label: 'pulseScale',      min: 0,   max: 1,            step: 0.01,  rebuild: false },
-  { key: 'pulseFreq',       label: 'pulseFreq',       min: 0.1, max: 10,           step: 0.1,   rebuild: false },
-  { key: 'flickerRate',     label: 'flickerRate',     min: 0,   max: 0.5,          step: 0.005, rebuild: false },
-  { key: 'gravityStrength', label: 'gravityStrength', min: 0,   max: 300,          step: 5,     rebuild: false },
-  { key: 'gravityBounce',   label: 'gravityBounce',   min: 0,   max: 1,            step: 0.05,  rebuild: false },
+  { key: 'fontSize',        label: 'size',       group: 'font',       min: 10,  max: 150,   step: 1,     rebuild: true  },
+  { key: 'fontOutlineWidth',label: 'outlineWidth',group:'font',        min: 0,   max: 8,     step: 0.5,   rebuild: false },
+  { key: 'swimVelocity',    label: 'velocity',   group: 'Swim',       min: 1,   max: 100,   step: 1,     rebuild: false },
+  { key: 'swimCloudSize',   label: 'cloudSize',  group: 'Swim',       min: 0,   max: 80,    step: 1,     rebuild: false },
+  { key: 'shakeAmount',     label: 'amount',     group: 'Shake',      min: 0,   max: 20,    step: 0.5,   rebuild: false },
+  { key: 'shakeFreq',       label: 'frequency',  group: 'Shake',      min: 1,   max: 60,    step: 1,     rebuild: false },
+  { key: 'pulseScale',      label: 'scale',      group: 'Pulse',      min: 0,   max: 1,     step: 0.01,  rebuild: false },
+  { key: 'pulseFreq',       label: 'frequency',  group: 'Pulse',      min: 0.1, max: 10,    step: 0.1,   rebuild: false },
+  { key: 'flickerRate',     label: 'rate',       group: 'Flicker',    min: 0,   max: 0.5,   step: 0.005, rebuild: false },
+  { key: 'gravityStrength', label: 'strength',   group: 'Gravity',    min: 0,   max: 300,   step: 5,     rebuild: false },
+  { key: 'gravityBounce',   label: 'bounce',     group: 'Gravity',    min: 0,   max: 1,     step: 0.05,  rebuild: false },
+  { key: 'repelRadius',     label: 'radius',     group: 'Repel',      min: 10,  max: 300,   step: 5,     rebuild: false },
+  { key: 'repelStrength',   label: 'strength',   group: 'Repel',      min: 0,   max: 1000,  step: 10,    rebuild: false },
+  { key: 'repelDecay',      label: 'decay',      group: 'Repel',      min: 0.1, max: 10,    step: 0.1,   rebuild: false },
+  { key: 'thermalRise',     label: 'rise',       group: 'Thermal',    min: 0,   max: 200,   step: 5,     rebuild: false },
+  { key: 'thermalShimmer',  label: 'shimmer',    group: 'Thermal',    min: 0,   max: 20,    step: 0.5,   rebuild: false },
+  { key: 'driftCloud',      label: 'cloud',      group: 'Drift',      min: 0,   max: 150,   step: 5,     rebuild: false },
+  { key: 'driftVelocity',   label: 'velocity',   group: 'Drift',      min: 5,   max: 300,   step: 5,     rebuild: false },
+  { key: 'pSize',           label: 'size',       group: 'Particle',   min: 1,   max: 12,    step: 0.5,   rebuild: false },
+  { key: 'pDensity',        label: 'density %',  group: 'Particle',   min: 10,  max: 100,   step: 5,     rebuild: false },
+  { key: 'pSpeed',          label: 'speed',      group: 'Particle',   min: 5,   max: 200,   step: 5,     rebuild: false },
+  { key: 'pPerc',           label: 'perception', group: 'Particle',   min: 2,   max: 40,    step: 1,     rebuild: false },
+  { key: 'pSep',            label: 'separation', group: 'Particle',   min: 0,   max: 5,     step: 0.1,   rebuild: false },
+  { key: 'pAlign',          label: 'alignment',  group: 'Particle',   min: 0,   max: 5,     step: 0.1,   rebuild: false },
+  { key: 'pCohes',          label: 'cohesion',   group: 'Particle',   min: 0,   max: 5,     step: 0.1,   rebuild: false },
+  { key: 'pRound',          label: 'roundness',  group: 'Particle',   min: 0,   max: 1,     step: 0.05,  rebuild: false },
+  { key: 'followVelocity',  label: 'velocity',   group: 'PathAssign', min: 10,  max: 500,   step: 5,     rebuild: false },
+  { key: 'pathSpacing',     label: 'spacing',    group: 'PathAssign', min: 5,   max: 50,    step: 1,     rebuild: true  },
+  { key: 'bgOpacity',       label: 'bgOpacity',  group: 'system',     min: 0,   max: 1,     step: 0.01,  rebuild: false },
+  { key: 'fgOpacity',       label: 'fgOpacity',  group: 'system',     min: 0,   max: 1,     step: 0.01,  rebuild: false },
+  { key: 'rotBackVel',      label: 'rotBackVel', group: 'system',     min: 0,   max: 6.28,  step: 0.05,  rebuild: false },
+  { key: 'rotToVel',        label: 'rotToVel',   group: 'system',     min: 0,   max: 12.57, step: 0.05,  rebuild: false },
 ];
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -218,7 +260,28 @@ class NTGlyph extends NTNode {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rotation);
     if (this.pulseScale !== 1.0) ctx.scale(this.pulseScale, this.pulseScale);
-    ctx.fillText(this.ch, 0, 0);
+    const ps = this[SYM_PARTICLE];
+    if (ps && ps.particles.length) {
+      ctx.fillStyle = P.fontFillColor;
+      const r = P.pSize * 0.5;
+      for (const p of ps.particles) {
+        if (P.pRound >= 0.99) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+        }
+      }
+    } else {
+      ctx.fillStyle = P.fontFillColor;
+      ctx.fillText(this.ch, 0, 0);
+      if (P.fontOutlineWidth > 0) {
+        ctx.strokeStyle = P.fontOutlineColor;
+        ctx.lineWidth   = P.fontOutlineWidth;
+        ctx.strokeText(this.ch, 0, 0);
+      }
+    }
     ctx.restore();
   }
 }
@@ -289,7 +352,11 @@ const SYM_SWIM    = Symbol('swim');
 const SYM_SHAKE   = Symbol('shake');
 const SYM_PULSE   = Symbol('pulse');
 const SYM_GRAVITY = Symbol('gravity');
-const SYM_WANDER  = Symbol('wander');
+const SYM_WANDER   = Symbol('wander');
+const SYM_REPEL    = Symbol('repel');
+const SYM_PARTICLE = Symbol('particle');
+const SYM_THERMAL  = Symbol('thermal');
+const SYM_DRIFT    = Symbol('drift');
 
 function resetSwimTarget(glyph) {
   glyph[SYM_SWIM] = {
@@ -495,6 +562,248 @@ class GravityBehavior {
   }
 }
 
+// ── RepelBehavior ─────────────────────────────────────────────────────────────
+// Pointer pushes glyphs away with velocity kick; velocity decays so Swim/Drift
+// naturally return them home. Pointer position tracked on book.pointerX/Y.
+class RepelBehavior {
+  apply(node, dt, book) {
+    if (!node[SYM_REPEL]) node[SYM_REPEL] = { vx: 0, vy: 0 };
+    if (node.isLed) return;
+    const s = node[SYM_REPEL];
+
+    if (book.pointerX !== undefined) {
+      const dx = node.x - book.pointerX;
+      const dy = node.y - book.pointerY;
+      const d  = Math.hypot(dx, dy);
+      const r  = P.repelRadius * book.dpr;
+      if (d < r && d > 0.5) {
+        const t     = 1 - d / r;
+        const accel = t * t * P.repelStrength * book.dpr;
+        s.vx += dx / d * accel * dt;
+        s.vy += dy / d * accel * dt;
+      }
+    }
+
+    node.x += s.vx * dt;
+    node.y += s.vy * dt;
+    const decay = Math.max(0, 1 - P.repelDecay * dt);
+    s.vx *= decay;
+    s.vy *= decay;
+  }
+}
+
+// ── ThermalBehavior ───────────────────────────────────────────────────────────
+// Upward buoyancy lifts glyphs above home; spring prevents runaway drift.
+// Horizontal Brownian shimmer gives heat-haze feel.
+class ThermalBehavior {
+  apply(node, dt) {
+    if (!node[SYM_THERMAL]) node[SYM_THERMAL] = { vy: 0, vx: 0 };
+    if (node.isLed) { const s = node[SYM_THERMAL]; s.vy = 0; s.vx = 0; return; }
+    const s = node[SYM_THERMAL];
+
+    s.vy -= P.thermalRise * dt;                            // buoyancy upward
+    s.vy += (node.homeY - node.y) * 1.5 * dt;             // spring back to home
+    s.vy *= Math.max(0, 1 - 1.5 * dt);                    // damping
+
+    s.vx += (Math.random() * 2 - 1) * P.thermalShimmer;   // horizontal shimmer
+    s.vx *= Math.max(0, 1 - 4 * dt);                      // horizontal damping
+
+    node.y += s.vy * dt;
+    node.x += s.vx * dt;
+  }
+}
+
+// ── DriftBehavior ─────────────────────────────────────────────────────────────
+// Smooth layered-sine motion: each glyph chases a target that traces an organic
+// Lissajous-like path around home. Per-glyph random frequencies and phases give
+// every character its own distinct trajectory.
+class DriftBehavior {
+  apply(node, dt) {
+    if (!node[SYM_DRIFT]) {
+      node[SYM_DRIFT] = {
+        t:      Math.random() * 100,
+        phaseX: Math.random() * Math.PI * 2,
+        phaseY: Math.random() * Math.PI * 2,
+        freqX:  0.25 + Math.random() * 0.25,
+        freqY:  0.18 + Math.random() * 0.22,
+      };
+    }
+    if (node.isLed) return;
+    const s = node[SYM_DRIFT];
+    s.t += dt;
+
+    // Two-octave noise per axis: normalised amplitude ≈ ±1
+    const nx = Math.sin(s.t * s.freqX * Math.PI * 2 + s.phaseX)
+             + 0.5 * Math.sin(s.t * s.freqX * 2.3 * Math.PI * 2 + s.phaseX * 1.7);
+    const ny = Math.sin(s.t * s.freqY * Math.PI * 2 + s.phaseY)
+             + 0.5 * Math.sin(s.t * s.freqY * 1.8 * Math.PI * 2 + s.phaseY * 2.1);
+
+    const tx = node.homeX + nx / 1.5 * P.driftCloud;
+    const ty = node.homeY + ny / 1.5 * P.driftCloud;
+
+    const dx = tx - node.x, dy = ty - node.y;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.driftVelocity * dt;
+    if (d <= sp) { node.x = tx; node.y = ty; }
+    else         { node.x += dx / d * sp; node.y += dy / d * sp; }
+  }
+}
+
+// ── ParticleBehavior ──────────────────────────────────────────────────────────
+// Replaces the glyph character with a flock of particles confined to its letter
+// mask. Mask is built from an offscreen canvas render of the character.
+// Per-node state (mask, particles) stored via SYM_PARTICLE.
+class ParticleBehavior {
+  apply(node, dt, book) {
+    const fontPx  = Math.round(P.fontSize * book.dpr);
+    const cell    = Math.max(1, Math.round(P.pSize));
+    const density = P.pDensity;
+    const s       = node[SYM_PARTICLE];
+
+    // Rebuild only if font size or density changed (not pSize — that's live visual only)
+    if (!s || s.fontPx !== fontPx || s.density !== density) {
+      node[SYM_PARTICLE] = this._init(node.ch, fontPx, cell, density);
+    }
+
+    this._step(node[SYM_PARTICLE], dt, book.dpr);
+  }
+
+  _init(ch, fontPx, cell, density) {
+    const pad   = Math.ceil(fontPx * 0.15);
+    const maskW = Math.ceil(fontPx * 1.3  + pad * 2);
+    const maskH = Math.ceil(fontPx * 1.15 + pad * 2);
+
+    const off = document.createElement('canvas');
+    off.width = maskW; off.height = maskH;
+    const ctx = off.getContext('2d');
+    ctx.font         = makeFont(fontPx);
+    ctx.textBaseline = 'middle';
+    ctx.textAlign    = 'center';
+    ctx.fillStyle    = '#fff';
+    ctx.fillText(ch, maskW / 2, maskH / 2);
+    const data = ctx.getImageData(0, 0, maskW, maskH).data;
+    const mask = new Uint8Array(maskW * maskH);
+    for (let i = 0; i < mask.length; i++) mask[i] = data[i * 4 + 3] > 64 ? 1 : 0;
+
+    const particles = [];
+    for (let gy = 0; gy < maskH; gy += cell) {
+      for (let gx = 0; gx < maskW; gx += cell) {
+        if (mask[gy * maskW + gx] && Math.random() * 100 < density) {
+          const angle = Math.random() * Math.PI * 2;
+          particles.push({
+            x: gx - maskW / 2 + cell / 2,
+            y: gy - maskH / 2 + cell / 2,
+            vx: Math.cos(angle),
+            vy: Math.sin(angle),
+          });
+        }
+      }
+    }
+    // Hard cap: randomly subsample if too many particles
+    const MAX_P = 100;
+    if (particles.length > MAX_P) {
+      for (let i = particles.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [particles[i], particles[j]] = [particles[j], particles[i]];
+      }
+      particles.length = MAX_P;
+    }
+
+    return { fontPx, cell, density, mask, maskW, maskH, particles };
+  }
+
+  _inside(mask, maskW, maskH, lx, ly) {
+    const xi = Math.round(lx + maskW / 2);
+    const yi = Math.round(ly + maskH / 2);
+    if (xi < 0 || xi >= maskW || yi < 0 || yi >= maskH) return false;
+    return mask[yi * maskW + xi] === 1;
+  }
+
+  _step(s, dt, dpr) {
+    const { mask, maskW, maskH, particles } = s;
+    if (!particles.length) return;
+
+    const maxSpd  = P.pSpeed * dpr;
+    const minSpd  = maxSpd * 0.3;
+    const perc    = P.pPerc * dpr;
+    const wallD   = Math.max(2, P.pSize * dpr * 0.5);
+    const DIRS    = [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+
+    // ── Spatial grid: O(n) neighbour lookup ──────────────────────────────────
+    const gcSize = Math.max(1, perc);
+    const gcols  = Math.ceil(maskW / gcSize) + 2;
+    const grows  = Math.ceil(maskH / gcSize) + 2;
+    const grid   = new Array(gcols * grows);
+    for (let k = 0; k < grid.length; k++) grid[k] = [];
+
+    for (let i = 0; i < particles.length; i++) {
+      const p  = particles[i];
+      const gx = Math.floor((p.x + maskW / 2) / gcSize);
+      const gy = Math.floor((p.y + maskH / 2) / gcSize);
+      const gi = gy * gcols + gx;
+      if (gi >= 0 && gi < grid.length) grid[gi].push(i);
+    }
+
+    // ── Boids per particle ────────────────────────────────────────────────────
+    for (let i = 0; i < particles.length; i++) {
+      const pi = particles[i];
+      let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, nc = 0;
+
+      const gx0 = Math.floor((pi.x + maskW / 2) / gcSize);
+      const gy0 = Math.floor((pi.y + maskH / 2) / gcSize);
+
+      for (let dgy = -1; dgy <= 1; dgy++) {
+        for (let dgx = -1; dgx <= 1; dgx++) {
+          const gc = (gy0 + dgy) * gcols + (gx0 + dgx);
+          if (gc < 0 || gc >= grid.length) continue;
+          for (const j of grid[gc]) {
+            if (i === j) continue;
+            const pj = particles[j];
+            const dx = pi.x - pj.x, dy = pi.y - pj.y;
+            const d  = Math.hypot(dx, dy);
+            if (d >= perc || d === 0) continue;
+            nc++;
+            cx += pj.x; cy += pj.y;
+            ax += pj.vx; ay += pj.vy;
+            if (d < perc * 0.5) { sx += dx / d; sy += dy / d; }
+          }
+        }
+      }
+
+      let fx = 0, fy = 0;
+      if (nc > 0) {
+        const sm = Math.hypot(sx, sy);
+        if (sm > 0) { fx += (sx/sm*maxSpd - pi.vx) * P.pSep;  fy += (sy/sm*maxSpd - pi.vy) * P.pSep; }
+        const am = Math.hypot(ax, ay) || 1;
+        fx += (ax/am*maxSpd - pi.vx) * P.pAlign; fy += (ay/am*maxSpd - pi.vy) * P.pAlign;
+        const tcx = cx/nc - pi.x, tcy = cy/nc - pi.y;
+        const tm  = Math.hypot(tcx, tcy) || 1;
+        fx += (tcx/tm*maxSpd - pi.vx) * P.pCohes; fy += (tcy/tm*maxSpd - pi.vy) * P.pCohes;
+      }
+
+      for (const [dx, dy] of DIRS) {
+        if (!this._inside(mask, maskW, maskH, pi.x + dx * wallD, pi.y + dy * wallD)) {
+          fx -= dx * maxSpd * 2; fy -= dy * maxSpd * 2;
+        }
+      }
+
+      pi.vx += fx * dt; pi.vy += fy * dt;
+
+      const spd = Math.hypot(pi.vx, pi.vy);
+      if (spd > maxSpd && spd > 0) { pi.vx = pi.vx/spd*maxSpd; pi.vy = pi.vy/spd*maxSpd; }
+      if (spd < minSpd && spd > 0) { pi.vx = pi.vx/spd*minSpd; pi.vy = pi.vy/spd*minSpd; }
+      if (spd === 0) { const a = Math.random()*Math.PI*2; pi.vx = Math.cos(a); pi.vy = Math.sin(a); }
+
+      pi.x += pi.vx * dt; pi.y += pi.vy * dt;
+
+      if (!this._inside(mask, maskW, maskH, pi.x, pi.y)) {
+        pi.x -= pi.vx * dt * 2; pi.y -= pi.vy * dt * 2;
+        pi.vx *= -0.5; pi.vy *= -0.5;
+      }
+    }
+  }
+}
+
 // ── Singleton instances ───────────────────────────────────────────────────────
 const swimBehavior       = new SwimBehavior();
 const pathFollowBehavior = new PathFollowBehavior();
@@ -506,15 +815,23 @@ const pulseBehavior      = new PulseBehavior();
 const flickerBehavior    = new FlickerBehavior();
 const wanderBehavior     = new WanderBehavior();
 const gravityBehavior    = new GravityBehavior();
+const repelBehavior      = new RepelBehavior();
+const thermalBehavior    = new ThermalBehavior();
+const driftBehavior      = new DriftBehavior();
+const particleBehavior   = new ParticleBehavior();
 
 // Populate registry instances (order matches BEHAVIOR_REGISTRY array above)
-BEHAVIOR_REGISTRY[0].instance = swimBehavior;
-BEHAVIOR_REGISTRY[1].instance = shakeBehavior;
-BEHAVIOR_REGISTRY[2].instance = pulseBehavior;
-BEHAVIOR_REGISTRY[3].instance = flickerBehavior;
-BEHAVIOR_REGISTRY[4].instance = gravityBehavior;
-BEHAVIOR_REGISTRY[5].instance = wanderBehavior;
-BEHAVIOR_REGISTRY[6].instance = pathAssignBehavior;
+BEHAVIOR_REGISTRY[0].instance  = swimBehavior;
+BEHAVIOR_REGISTRY[1].instance  = shakeBehavior;
+BEHAVIOR_REGISTRY[2].instance  = pulseBehavior;
+BEHAVIOR_REGISTRY[3].instance  = flickerBehavior;
+BEHAVIOR_REGISTRY[4].instance  = gravityBehavior;
+BEHAVIOR_REGISTRY[5].instance  = repelBehavior;
+BEHAVIOR_REGISTRY[6].instance  = thermalBehavior;
+BEHAVIOR_REGISTRY[7].instance  = driftBehavior;
+BEHAVIOR_REGISTRY[8].instance  = particleBehavior;
+BEHAVIOR_REGISTRY[9].instance  = wanderBehavior;
+BEHAVIOR_REGISTRY[10].instance = pathAssignBehavior;
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 class Scene {
@@ -532,8 +849,8 @@ class Scene {
 
   _resize() {
     this.dpr = window.devicePixelRatio || 1;
-    const w  = Math.max(1, window.innerWidth  - 240);
-    const h  = Math.max(1, window.innerHeight);
+    const h  = 500;
+    const w  = Math.round(h * 16 / 9);  // 889px
     this.canvas.width        = Math.round(w * this.dpr);
     this.canvas.height       = Math.round(h * this.dpr);
     this.canvas.style.width  = w + 'px';
@@ -548,6 +865,12 @@ class Scene {
     const W   = this.book.W;
     const H   = this.book.H;
     const dpr = this.dpr;
+
+    // Save current glyph positions so parameter changes don't reset them
+    const savedState = [];
+    for (const line of this.book.lines)
+      for (const g of line.glyphs)
+        savedState.push({ x: g.x, y: g.y, homeX: g.homeX, homeY: g.homeY });
 
     this.book.children = [];
     this.active        = null;
@@ -564,13 +887,7 @@ class Scene {
       enabled[b.name] = cb ? cb.checked : b.enabledByDefault;
     }
 
-    // Responsive font: scale down so longest line fits 85% of canvas width
-    let fontPx = Math.round(P.fontSize * dpr);
-    ctx.font = makeFont(fontPx);
-    const maxLineW = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
-    if (maxLineW > 0 && maxLineW > W * 0.85) {
-      fontPx = Math.floor(fontPx * (W * 0.85) / maxLineW);
-    }
+    const fontPx = Math.round(P.fontSize * dpr);
     this._fontPx = fontPx;
 
     const pad = Math.round(16 * dpr);
@@ -601,10 +918,26 @@ class Scene {
         if (enabled['Shake'])   g.addBehavior(shakeBehavior);
         if (enabled['Pulse'])   g.addBehavior(pulseBehavior);
         if (enabled['Flicker']) g.addBehavior(flickerBehavior);
-        if (enabled['Gravity']) g.addBehavior(gravityBehavior);
+        if (enabled['Gravity'])  g.addBehavior(gravityBehavior);
+        if (enabled['Repel'])    g.addBehavior(repelBehavior);
+        if (enabled['Thermal'])  g.addBehavior(thermalBehavior);
+        if (enabled['Drift'])     g.addBehavior(driftBehavior);
+        if (enabled['Particle'])  g.addBehavior(particleBehavior);
       }
 
       this.book.addChild(line);
+    }
+
+    // Restore positions if glyph count unchanged (parameter tweak, not text change)
+    const allGlyphs = this.book.lines.flatMap(l => l.glyphs);
+    if (savedState.length > 0 && savedState.length === allGlyphs.length) {
+      for (let i = 0; i < allGlyphs.length; i++) {
+        allGlyphs[i].x     = savedState[i].x;
+        allGlyphs[i].y     = savedState[i].y;
+        allGlyphs[i].homeX = savedState[i].homeX;
+        allGlyphs[i].homeY = savedState[i].homeY;
+        resetSwimTarget(allGlyphs[i]);
+      }
     }
   }
 
@@ -614,6 +947,7 @@ class Scene {
     c.addEventListener('pointermove',   e => this._onMove(e));
     c.addEventListener('pointerup',     e => this._onUp());
     c.addEventListener('pointercancel', e => this._onUp());
+    c.addEventListener('pointerleave',  () => { this.book.pointerX = undefined; });
     window.addEventListener('resize', () => { this._resize(); this._build(); });
   }
 
@@ -628,6 +962,8 @@ class Scene {
   _onDown(e) {
     e.preventDefault();
     const { x, y } = this._toCanvas(e);
+    this.book.pointerX = x;
+    this.book.pointerY = y;
     let best = null, bestD = Infinity;
     for (const line of this.book.lines) {
       const d = line.nearestGlyphDist(x, y);
@@ -642,9 +978,11 @@ class Scene {
   }
 
   _onMove(e) {
+    const { x, y } = this._toCanvas(e);
+    this.book.pointerX = x;   // always track for RepelBehavior
+    this.book.pointerY = y;
     if (!this.active) return;
     e.preventDefault();
-    const { x, y } = this._toCanvas(e);
     const path = this.book.path;
     const last = path[path.length - 1];
     if (Math.hypot(x - last.x, y - last.y) >= P.pathSpacing * this.dpr) {
@@ -683,7 +1021,6 @@ class Scene {
     }
 
     ctx.font         = makeFont(this._fontPx);
-    ctx.fillStyle    = '#fff';
     ctx.textBaseline = 'middle';
     ctx.textAlign    = 'center';
     this.book.draw(ctx);
@@ -705,76 +1042,118 @@ class Scene {
 
 // ── UI Generation ─────────────────────────────────────────────────────────────
 function buildUI(scene) {
-  const glyphDiv = document.getElementById('glyph-behaviors');
-  const wordDiv  = document.getElementById('word-behaviors');
-  const lineDiv  = document.getElementById('line-behaviors');
+  const panel  = document.getElementById('panel');
+  const rebBtn = document.getElementById('rebuild-btn');
 
-  for (const b of BEHAVIOR_REGISTRY) {
-    const row = document.createElement('div');
-    row.className = 'beh-row';
-
-    const cb = document.createElement('input');
-    cb.type    = 'checkbox';
-    cb.id      = 'cb-' + b.name;
-    cb.checked = b.enabledByDefault;
-    cb.title   = b.description;
-    cb.addEventListener('change', () => scene._build());
-
-    const lbl = document.createElement('label');
-    lbl.htmlFor     = cb.id;
-    lbl.textContent = b.name;
-    lbl.title       = b.description;
-
-    row.appendChild(cb);
-    row.appendChild(lbl);
-
-    if      (b.level === 'glyph') glyphDiv.appendChild(row);
-    else if (b.level === 'word')  wordDiv.appendChild(row);
-    else if (b.level === 'line')  lineDiv.appendChild(row);
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function makeSection(title, open = true) {
+    const hd = document.createElement('h3');
+    hd.className   = 'sec-hd' + (open ? '' : ' closed');
+    hd.textContent = title;
+    const bd = document.createElement('div');
+    bd.className   = 'sec-bd' + (open ? '' : ' hidden');
+    hd.addEventListener('click', () => {
+      const closing = !bd.classList.contains('hidden');
+      bd.classList.toggle('hidden', closing);
+      hd.classList.toggle('closed', closing);
+    });
+    panel.insertBefore(hd, rebBtn);
+    panel.insertBefore(bd, rebBtn);
+    return bd;
   }
 
-  const paramsDiv = document.getElementById('params');
-  for (const p of PARAM_REGISTRY) {
+  function makeSlider(p) {
     const row = document.createElement('div');
     row.className = 'param-row';
-
-    const header = document.createElement('div');
-    header.className = 'param-header';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.className   = 'param-name';
-    nameSpan.textContent = p.label;
-
-    const valSpan = document.createElement('span');
-    valSpan.className   = 'param-val';
-    valSpan.id          = 'pv-' + p.key;
-    valSpan.textContent = fmtVal(p);
-
-    header.appendChild(nameSpan);
-    header.appendChild(valSpan);
-
-    const slider = document.createElement('input');
-    slider.type  = 'range';
-    slider.min   = p.min;
-    slider.max   = p.max;
-    slider.step  = p.step;
-    slider.value = P[p.key];
-    slider.addEventListener('input', () => {
-      P[p.key] = parseFloat(slider.value);
+    const hdr = document.createElement('div');
+    hdr.className = 'param-header';
+    const nm = document.createElement('span');
+    nm.className = 'param-name'; nm.textContent = p.label;
+    const vl = document.createElement('span');
+    vl.className = 'param-val'; vl.id = 'pv-' + p.key; vl.textContent = fmtVal(p);
+    hdr.appendChild(nm); hdr.appendChild(vl);
+    const sl = document.createElement('input');
+    sl.type = 'range'; sl.min = p.min; sl.max = p.max; sl.step = p.step; sl.value = P[p.key];
+    sl.addEventListener('input', () => {
+      P[p.key] = parseFloat(sl.value);
       document.getElementById('pv-' + p.key).textContent = fmtVal(p);
       if (p.rebuild) scene._build();
     });
-
-    row.appendChild(header);
-    row.appendChild(slider);
-    paramsDiv.appendChild(row);
+    row.appendChild(hdr); row.appendChild(sl);
+    return row;
   }
 
-  document.getElementById('rebuild-btn')
-    .addEventListener('click', () => scene._build());
+  function makeColorPicker(key, label) {
+    const row = document.createElement('div');
+    row.className = 'color-row';
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    const inp = document.createElement('input');
+    inp.type = 'color'; inp.value = P[key];
+    inp.addEventListener('input', () => { P[key] = inp.value; });
+    row.appendChild(lbl); row.appendChild(inp);
+    return row;
+  }
 
-  document.getElementById('poem-input')
-    .addEventListener('blur', () => scene._build());
+  function makeBehaviourBlock(b) {
+    const wrap = document.createElement('div');
+    const row  = document.createElement('div');
+    row.className = 'beh-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = 'cb-' + b.name;
+    cb.checked = b.enabledByDefault; cb.title = b.description;
+    const lbl = document.createElement('label');
+    lbl.htmlFor = cb.id; lbl.textContent = b.name; lbl.title = b.description;
+    row.appendChild(cb); row.appendChild(lbl); wrap.appendChild(row);
+
+    const bParams = PARAM_REGISTRY.filter(p => p.group === b.name);
+    if (bParams.length) {
+      const pd = document.createElement('div');
+      pd.className = 'beh-params';
+      pd.style.display = cb.checked ? 'block' : 'none';
+      for (const p of bParams) pd.appendChild(makeSlider(p));
+      wrap.appendChild(pd);
+      cb.addEventListener('change', () => {
+        pd.style.display = cb.checked ? 'block' : 'none';
+        scene._build();
+      });
+    } else {
+      cb.addEventListener('change', () => scene._build());
+    }
+    return wrap;
+  }
+
+  // ── Text section (move existing textarea into it) ─────────────────────────
+  const textBd = makeSection('Text', true);
+  const ta = document.getElementById('poem-input');
+  ta.addEventListener('blur', () => scene._build());
+  textBd.appendChild(ta);
+
+  // ── Font section ──────────────────────────────────────────────────────────
+  const fontBd = makeSection('Font', true);
+  for (const p of PARAM_REGISTRY.filter(p => p.group === 'font'))
+    fontBd.appendChild(makeSlider(p));
+  fontBd.appendChild(makeColorPicker('fontFillColor',    'Fill colour'));
+  fontBd.appendChild(makeColorPicker('fontOutlineColor', 'Outline colour'));
+
+  // ── Behaviour sections ────────────────────────────────────────────────────
+  for (const [level, title] of [
+    ['glyph', 'Glyph Behaviours'],
+    ['word',  'Word Behaviours'],
+    ['line',  'Line Behaviours'],
+  ]) {
+    const bd = makeSection(title, true);
+    for (const b of BEHAVIOR_REGISTRY.filter(b => b.level === level))
+      bd.appendChild(makeBehaviourBlock(b));
+  }
+
+  // ── System (collapsed by default) ─────────────────────────────────────────
+  const sysBd = makeSection('System', false);
+  for (const p of PARAM_REGISTRY.filter(p => p.group === 'system'))
+    sysBd.appendChild(makeSlider(p));
+
+  // ── Rebuild button ─────────────────────────────────────────────────────────
+  rebBtn.addEventListener('click', () => scene._build());
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

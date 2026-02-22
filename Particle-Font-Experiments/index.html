@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Particle A</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+#panel h1 { font-size: 13px; color: #eee; margin-bottom: 14px;
+            font-weight: 600; letter-spacing: 0.04em; }
+
+.param-row { margin: 8px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 3px; }
+.param-name { font-size: 11px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; }
+
+input[type=range] {
+  width: 100%; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+#count-note { font-size: 10px; color: #555; margin-top: 3px; }
+
+#rebuild-btn {
+  width: 100%; padding: 7px; margin-top: 18px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover  { background: #253545; }
+#rebuild-btn:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>Particle A</h1>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Font Size</span>
+      <span class="param-val" id="vFontPt">300 pt</span>
+    </div>
+    <input type="range" id="sFontPt" min="50" max="600" step="10" value="300">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Particle Size</span>
+      <span class="param-val" id="vCellPx">5 px</span>
+    </div>
+    <input type="range" id="sCellPx" min="1" max="20" step="1" value="5">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Particles</span>
+      <span class="param-val" id="vDensity">100%</span>
+    </div>
+    <input type="range" id="sDensity" min="1" max="100" step="1" value="100">
+    <div id="count-note">— particles</div>
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Speed</span>
+      <span class="param-val" id="vSpeed">130 px/s</span>
+    </div>
+    <input type="range" id="sSpeed" min="10" max="600" step="10" value="130">
+  </div>
+
+  <button id="rebuild-btn">Rebuild</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const dpr    = window.devicePixelRatio || 1;
+const W      = canvas.width  = Math.round((window.innerWidth  - 240) * dpr);
+const H      = canvas.height = Math.round( window.innerHeight        * dpr);
+canvas.style.width  = (window.innerWidth - 240) + 'px';
+canvas.style.height =  window.innerHeight        + 'px';
+
+// ── Params ────────────────────────────────────────────────────────────────────
+const P = { fontPt: 300, cellPx: 5, density: 1.0, speed: 130 };
+
+// ── State (rebuilt when params change) ───────────────────────────────────────
+let FONT_STR, CELL, VMIN, VMAX;
+let mask      = null;   // Uint8Array, length W*H
+let allCells  = [];     // [{x,y}] every valid center on the CELL grid
+let particles = [];     // active subset with velocity
+
+function inside(x, y) {
+  const xi = x | 0, yi = y | 0;
+  if (xi < 0 || xi >= W || yi < 0 || yi >= H) return false;
+  return mask[yi * W + xi] === 1;
+}
+
+// Rebuild mask + allCells (font or cell size changed)
+function buildMask() {
+  const fontPx = Math.round(P.fontPt * (4 / 3) * dpr);   // pt → CSS px → canvas px
+  CELL     = Math.round(P.cellPx * dpr);
+  FONT_STR = `bold ${fontPx}px "Gill Sans", Georgia, serif`;
+
+  const off  = document.createElement('canvas');
+  off.width  = W;
+  off.height = H;
+  const octx = off.getContext('2d');
+  octx.font         = FONT_STR;
+  octx.textAlign    = 'center';
+  octx.textBaseline = 'middle';
+  octx.fillStyle    = '#fff';
+  octx.fillText('A', W / 2, H / 2);
+
+  const raw = octx.getImageData(0, 0, W, H).data;
+  mask = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) mask[i] = raw[i * 4 + 3] > 128 ? 1 : 0;
+
+  // Collect every valid cell centre on the CELL grid
+  allCells = [];
+  const half = CELL / 2;
+  for (let y = half; y < H; y += CELL) {
+    for (let x = half; x < W; x += CELL) {
+      if (inside(x, y)) allCells.push({ x, y });
+    }
+  }
+}
+
+function makeParticle(x, y) {
+  const speed = VMIN + Math.random() * (VMAX - VMIN);
+  const angle = Math.random() * Math.PI * 2;
+  return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+}
+
+// Spawn a random subset of allCells as active particles
+function buildParticles() {
+  VMIN = P.speed * 0.5 * dpr;
+  VMAX = P.speed * 1.5 * dpr;
+
+  const count = Math.max(1, Math.round(allCells.length * P.density));
+
+  if (count >= allCells.length) {
+    particles = allCells.map(({ x, y }) => makeParticle(x, y));
+  } else {
+    // Fisher-Yates partial shuffle to pick `count` cells
+    const idx = allCells.map((_, i) => i);
+    for (let i = 0; i < count; i++) {
+      const j = i + Math.floor(Math.random() * (idx.length - i));
+      [idx[i], idx[j]] = [idx[j], idx[i]];
+    }
+    particles = idx.slice(0, count).map(i => makeParticle(allCells[i].x, allCells[i].y));
+  }
+
+  document.getElementById('count-note').textContent = `${particles.length.toLocaleString()} particles`;
+}
+
+// Rescale existing particle speeds when speed slider changes (no rebuild)
+function applySpeed() {
+  VMIN = P.speed * 0.5 * dpr;
+  VMAX = P.speed * 1.5 * dpr;
+  for (const p of particles) {
+    const spd = Math.hypot(p.vx, p.vy) || 1;
+    const tgt = VMIN + Math.random() * (VMAX - VMIN);
+    p.vx = p.vx / spd * tgt;
+    p.vy = p.vy / spd * tgt;
+  }
+}
+
+function fullRebuild() {
+  buildMask();
+  buildParticles();
+}
+
+// ── Physics ───────────────────────────────────────────────────────────────────
+function step(p, dt) {
+  const nx = p.x + p.vx * dt;
+  const ny = p.y + p.vy * dt;
+
+  if (inside(nx, ny))  { p.x = nx; p.y = ny; return; }
+  if (inside(p.x, ny)) { p.y = ny; p.vx = -p.vx; return; }
+  if (inside(nx, p.y)) { p.x = nx; p.vy = -p.vy; return; }
+
+  // Corner: reverse + jitter + renormalise
+  p.vx = -p.vx + (Math.random() - 0.5) * 0.4 * VMAX;
+  p.vy = -p.vy + (Math.random() - 0.5) * 0.4 * VMAX;
+  const spd = Math.hypot(p.vx, p.vy) || 1;
+  const tgt = VMIN + Math.random() * (VMAX - VMIN);
+  p.vx = p.vx / spd * tgt;
+  p.vy = p.vy / spd * tgt;
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+let last = null;
+
+function loop(ts) {
+  if (last === null) last = ts;
+  const dt = Math.min((ts - last) / 1000, 0.05);
+  last = ts;
+
+  for (const p of particles) step(p, dt);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ghost outline
+  ctx.font         = FONT_STR;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle  = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth    = dpr;
+  ctx.strokeText('A', W / 2, H / 2);
+
+  // Particles
+  const half = CELL / 2;
+  ctx.fillStyle = '#fff';
+  for (const p of particles) ctx.fillRect(p.x - half, p.y - half, CELL, CELL);
+
+  requestAnimationFrame(loop);
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function wire(sliderId, labelId, fmt, onChange) {
+  const s = document.getElementById(sliderId);
+  const l = document.getElementById(labelId);
+  s.addEventListener('input', () => {
+    l.textContent = fmt(parseFloat(s.value));
+    onChange(parseFloat(s.value));
+  });
+}
+
+wire('sFontPt',  'vFontPt',  v => `${v} pt`,    v => { P.fontPt  = v; fullRebuild(); });
+wire('sCellPx',  'vCellPx',  v => `${v} px`,    v => { P.cellPx  = v; fullRebuild(); });
+wire('sDensity', 'vDensity', v => `${v}%`,       v => { P.density = v / 100; buildParticles(); });
+wire('sSpeed',   'vSpeed',   v => `${v} px/s`,   v => { P.speed   = v; applySpeed(); });
+
+document.getElementById('rebuild-btn').addEventListener('click', fullRebuild);
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+fullRebuild();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

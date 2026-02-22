@@ -1,0 +1,98 @@
+PoEMM → VCV Rack: Porting Notes
+=================================
+Generated from conversation with Claude, 2026-02-21
+
+
+QUESTION 1: Can you compile the particle simulation (JavaScript/HTML Canvas) to a VCV module?
+----------------------------------------------------------------------------------------------
+
+Short answer: no, not in any direct way.
+
+A few reasons:
+
+- Wrong language — VCV Rack modules are written in C++ using the VCV Rack SDK.
+  There's no path from JavaScript/HTML to a compiled .vcv plugin.
+
+- Wrong paradigm — VCV modules process audio and CV signals at sample rate.
+  This code renders visuals to a Canvas. There's no natural mapping between the two.
+
+- Wrong runtime — VCV Rack embeds its own OpenGL renderer and audio engine.
+  It has no JavaScript runtime or browser Canvas API.
+
+What you *could* do is write a VCV module *inspired* by the flocking behavior —
+mapping particle velocities or flock cohesion values to CV outputs, for example —
+but that would be a ground-up C++ rewrite using the VCV SDK, not a compilation
+of this code.
+
+
+QUESTION 2: Can you compile from the original Objective-C (PoEMM iOS) to VCV?
+-------------------------------------------------------------------------------
+
+Still no, and for largely the same reasons — but with a few extra wrinkles
+specific to the Objective-C codebase:
+
+- iOS framework dependency — the PoEMM Objective-C code is deeply tied to UIKit,
+  CoreGraphics, CoreText, and CoreAnimation. None of those frameworks exist outside
+  of Apple's ecosystem, let alone inside VCV Rack.
+
+- Objective-C ↔ C++ incompatibility — although both descend from C, Objective-C's
+  runtime (message passing, NSObject, etc.) and C++ are not interoperable in the
+  way you'd need. There is Objective-C++ (.mm files) but that's a mixing tool,
+  not a compilation bridge.
+
+- Same paradigm mismatch — the PoEMM code drives a visual, touch-responsive text
+  renderer. VCV Rack expects audio/CV processing at sample rate.
+
+What actually *could* cross over is the pure math inside the behaviors — the swim,
+path-follow, flocking algorithms are just vectors and arithmetic. Those could be
+extracted and rewritten in C++ as CV generators for VCV. For example:
+
+  - Swim behavior        → a slow random CV wanderer (like a Turing Machine or Wogglebug)
+  - Flock cohesion/separation → multi-channel CV that stays relationally bound
+  - Path-follow          → envelope follower or sequencer that tracks a drawn shape
+
+That would be a genuinely interesting project, but it's a conceptual port,
+not a compilation.
+
+
+QUESTION 3: What about porting from the Java versions of the PoEMMs?
+---------------------------------------------------------------------
+
+Closer, but still no direct compilation path. That said, the Java versions are
+genuinely more portable than the Objective-C ones:
+
+WHY IT'S EASIER THAN OBJECTIVE-C:
+- No iOS framework entanglement — the Java/Processing code has no UIKit,
+  CoreGraphics, etc.
+- NextText is self-contained Java — the behavior math (swim, path-follow, flocking
+  equivalents) is clean and well-separated from the renderer.
+- Java and C++ are conceptually similar enough that a manual port is straightforward.
+
+WHY IT STILL WON'T COMPILE TO VCV:
+- VCV Rack has no Java runtime.
+- The Processing/Java renderer (OpenGL via JOGL) doesn't exist in VCV.
+- Java's garbage collector, object model, and standard library have no equivalent
+  in VCV's C++ environment.
+
+THE MOST REALISTIC PATH FROM JAVA TO VCV:
+1. Extract just the behavior classes from NextText
+   (SwimBehavior, PathFollowBehavior, etc.)
+2. Rewrite those as C++ in a VCV module, replacing position/velocity with CV voltage.
+3. The hierarchy (Book → TextObject → Glyph) could map to polyphonic CV channels.
+
+ONE GENUINELY INTERESTING SHORTCUT:
+VCV Rack has a VCV Prototype module that runs JavaScript. The JS port of the PoEMM
+behaviors (WhatTheySpeak-web, and the subsequent sandbox work) is already written
+in exactly that language — so the behavior math could potentially run inside
+VCV Prototype with relatively modest adaptation, outputting CV instead of moving
+glyphs.
+
+That's probably the lowest-friction path if you ever wanted to explore it.
+
+
+RELEVANT FILE LOCATIONS
+-----------------------
+JS port (poem 1):       /Users/jasonlocal/Documents/Coding-Experiments/WhatTheySpeak-web/index.html
+PoEMM JS sandbox:       /Users/jasonlocal/Documents/Coding-Experiments/PoEMM-Sandbox/index.html
+Behaviour inventory:    /Users/jasonlocal/Documents/Coding-Experiments/poemm-behaviour-inventory.md
+NextText (Java source): https://github.com/prisonerjohn/NextText

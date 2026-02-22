@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>PoEMM Sandbox</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+#panel h3 {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #555; margin: 12px 0 5px;
+  border-top: 1px solid #1e1e1e; padding-top: 8px;
+}
+#panel h3:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+#poem-input {
+  width: 100%; height: 76px; background: #181818; color: #ddd;
+  border: 1px solid #2a2a2a; font-size: 11px; padding: 5px;
+  resize: none; font-family: "Gill Sans", Georgia, serif; line-height: 1.5;
+}
+#poem-input:focus { outline: none; border-color: #336; }
+
+.beh-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.beh-row label { cursor: pointer; font-size: 12px; color: #aaa; flex: 1; user-select: none; }
+.beh-row label:hover { color: #eee; }
+.beh-row input[type=checkbox] { accent-color: #7af; cursor: pointer; flex-shrink: 0; }
+
+.param-row { margin: 5px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 2px; }
+.param-name { font-size: 10px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; min-width: 38px;
+              text-align: right; }
+
+input[type=range] {
+  width: 100%; height: 12px; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+#rebuild-btn {
+  width: 100%; padding: 7px; margin-top: 14px; margin-bottom: 2px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover  { background: #253545; }
+#rebuild-btn:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h3>Text</h3>
+  <textarea id="poem-input">Test the glyph level here
+And the word level too
+Every line a new passage
+The whole book speaks</textarea>
+
+  <h3>Glyph Behaviours</h3>
+  <div id="glyph-behaviors"></div>
+
+  <h3>Word Behaviours</h3>
+  <div id="word-behaviors"></div>
+
+  <h3>Line Behaviours</h3>
+  <div id="line-behaviors"></div>
+
+  <h3>Params</h3>
+  <div id="params"></div>
+
+  <button id="rebuild-btn">Rebuild</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+// ── Parameters ────────────────────────────────────────────────────────────────
+const P = {
+  swimVelocity:    10,
+  swimCloudSize:   10,
+  followVelocity:  250,
+  pathSpacing:     15,
+  maxPathLen:      128,
+  pathOffset:      3,
+  bgOpacity:       0.15,
+  fgOpacity:       1.0,
+  fadeBg:          1 / 255 * 60,
+  fadeFg:          2 / 255 * 60,
+  rotBackVel:      Math.PI / 4,
+  rotToVel:        Math.PI,
+  pathAlpha:       0.4,
+  fontSize:        18,
+  shakeAmount:     3,
+  shakeFreq:       20,
+  pulseScale:      0.2,
+  pulseFreq:       2,
+  flickerRate:     0.05,
+  gravityStrength: 60,
+  gravityBounce:   0.5,
+};
+
+// ── Behaviour Registry ────────────────────────────────────────────────────────
+// instances populated after class definitions; UI auto-generated from this array.
+const BEHAVIOR_REGISTRY = [
+  { name: 'Swim',       level: 'glyph', instance: null, enabledByDefault: true,
+    description: 'Drift toward random target near home position' },
+  { name: 'Shake',      level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Rapid random jitter around current position' },
+  { name: 'Pulse',      level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Sinusoidal scale oscillation' },
+  { name: 'Flicker',    level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Random opacity snapping at flickerRate probability per frame' },
+  { name: 'Gravity',    level: 'glyph', instance: null, enabledByDefault: false,
+    description: 'Downward acceleration with bounce at canvas bottom' },
+  { name: 'Wander',     level: 'word',  instance: null, enabledByDefault: false,
+    description: 'Word-level circular drift; child glyphs inherit offset' },
+  { name: 'PathAssign', level: 'line',  instance: null, enabledByDefault: true,
+    description: 'Assign path positions to child glyphs each frame' },
+];
+
+// ── Parameter Registry ────────────────────────────────────────────────────────
+// rebuild:true → slider change triggers _build(); otherwise live P update only.
+const PARAM_REGISTRY = [
+  { key: 'swimVelocity',    label: 'swimVelocity',    min: 1,   max: 100,          step: 1,     rebuild: false },
+  { key: 'swimCloudSize',   label: 'swimCloud',       min: 0,   max: 80,           step: 1,     rebuild: false },
+  { key: 'followVelocity',  label: 'followVelocity',  min: 10,  max: 500,          step: 5,     rebuild: false },
+  { key: 'pathSpacing',     label: 'pathSpacing',     min: 5,   max: 50,           step: 1,     rebuild: true  },
+  { key: 'bgOpacity',       label: 'bgOpacity',       min: 0,   max: 1,            step: 0.01,  rebuild: false },
+  { key: 'fgOpacity',       label: 'fgOpacity',       min: 0,   max: 1,            step: 0.01,  rebuild: false },
+  { key: 'rotBackVel',      label: 'rotBackVel',      min: 0,   max: Math.PI * 2,  step: 0.05,  rebuild: false },
+  { key: 'rotToVel',        label: 'rotToVel',        min: 0,   max: Math.PI * 4,  step: 0.05,  rebuild: false },
+  { key: 'fontSize',        label: 'fontSize',        min: 10,  max: 48,           step: 1,     rebuild: true  },
+  { key: 'shakeAmount',     label: 'shakeAmount',     min: 0,   max: 20,           step: 0.5,   rebuild: false },
+  { key: 'shakeFreq',       label: 'shakeFreq',       min: 1,   max: 60,           step: 1,     rebuild: false },
+  { key: 'pulseScale',      label: 'pulseScale',      min: 0,   max: 1,            step: 0.01,  rebuild: false },
+  { key: 'pulseFreq',       label: 'pulseFreq',       min: 0.1, max: 10,           step: 0.1,   rebuild: false },
+  { key: 'flickerRate',     label: 'flickerRate',     min: 0,   max: 0.5,          step: 0.005, rebuild: false },
+  { key: 'gravityStrength', label: 'gravityStrength', min: 0,   max: 300,          step: 5,     rebuild: false },
+  { key: 'gravityBounce',   label: 'gravityBounce',   min: 0,   max: 1,            step: 0.05,  rebuild: false },
+];
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+function wrapAngle(a) {
+  while (a >  Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+function makeFont(px) {
+  return `bold ${px}px "Gill Sans", "GillSans-Bold", Georgia, serif`;
+}
+
+function fmtVal(p) {
+  const v = P[p.key];
+  return p.step < 0.01 ? v.toFixed(3) : p.step < 1 ? v.toFixed(2) : v.toFixed(0);
+}
+
+// ── NTNode — base scene-graph node ────────────────────────────────────────────
+class NTNode {
+  constructor() {
+    this.x         = 0;
+    this.y         = 0;
+    this.homeX     = 0;
+    this.homeY     = 0;
+    this.rotation  = 0;
+    this.opacity   = P.bgOpacity;
+    this.isLed     = false;
+    this.behaviors = [];
+    this.children  = [];
+  }
+  addBehavior(b) { this.behaviors.push(b); return this; }
+  addChild(c)    { this.children.push(c);  return this; }
+  update(dt, book) {
+    for (const b of this.behaviors) b.apply(this, dt, book);
+    for (const c of this.children)  c.update(dt, book);
+  }
+  draw(ctx) {
+    for (const c of this.children) c.draw(ctx);
+  }
+}
+
+// ── NTGlyph — leaf node, one typographic character ───────────────────────────
+class NTGlyph extends NTNode {
+  constructor(ch, advance) {
+    super();
+    this.ch         = ch;
+    this.advance    = advance;
+    this.pathX      = 0;
+    this.pathY      = 0;
+    this.pathRot    = 0;
+    this.pulseScale = 1.0;   // written by PulseBehavior, read in draw()
+  }
+  draw(ctx) {
+    if (this.opacity < 0.005) return;
+    ctx.save();
+    ctx.globalAlpha = clamp(this.opacity, 0, 1);
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    if (this.pulseScale !== 1.0) ctx.scale(this.pulseScale, this.pulseScale);
+    ctx.fillText(this.ch, 0, 0);
+    ctx.restore();
+  }
+}
+
+// ── NTWord — groups the glyphs of one word ────────────────────────────────────
+class NTWord extends NTNode {
+  constructor(text, ctx2d, fontPx) {
+    super();
+    this.wanderOffsetX = 0;   // written by WanderBehavior
+    this.wanderOffsetY = 0;
+    ctx2d.font = makeFont(fontPx);
+    for (const ch of text) {
+      this.addChild(new NTGlyph(ch, ctx2d.measureText(ch).width));
+    }
+  }
+  get glyphs() { return this.children; }
+  draw(ctx) {
+    if (this.wanderOffsetX !== 0 || this.wanderOffsetY !== 0) {
+      ctx.save();
+      ctx.translate(this.wanderOffsetX, this.wanderOffsetY);
+      for (const c of this.children) c.draw(ctx);
+      ctx.restore();
+    } else {
+      for (const c of this.children) c.draw(ctx);
+    }
+  }
+}
+
+// ── NTTextObject — one poem line ──────────────────────────────────────────────
+class NTTextObject extends NTNode {
+  constructor(text, ctx2d, fontPx) {
+    super();
+    const words = text.split(' ').filter(w => w);
+    for (const w of words) this.addChild(new NTWord(w, ctx2d, fontPx));
+    this._glyphs = this.children.flatMap(w => w.glyphs);
+  }
+  get words()  { return this.children; }
+  get glyphs() { return this._glyphs;  }
+  setLed(on) {
+    this.isLed = on;
+    for (const g of this._glyphs) {
+      g.isLed = on;
+      if (!on) resetSwimTarget(g);
+    }
+  }
+  nearestGlyphDist(px, py) {
+    let min = Infinity;
+    for (const g of this._glyphs)
+      min = Math.min(min, Math.hypot(g.x - px, g.y - py));
+    return min;
+  }
+}
+
+// ── NTBook — root node ────────────────────────────────────────────────────────
+class NTBook extends NTNode {
+  constructor() {
+    super();
+    this.path = [];
+    this.W    = 0;
+    this.H    = 0;
+    this.dpr  = 1;
+  }
+  get lines() { return this.children; }
+}
+
+// ── Symbol keys for per-node behaviour state ──────────────────────────────────
+const SYM_SWIM    = Symbol('swim');
+const SYM_SHAKE   = Symbol('shake');
+const SYM_PULSE   = Symbol('pulse');
+const SYM_GRAVITY = Symbol('gravity');
+const SYM_WANDER  = Symbol('wander');
+
+function resetSwimTarget(glyph) {
+  glyph[SYM_SWIM] = {
+    tx: glyph.homeX + (Math.random() * 2 - 1) * P.swimCloudSize,
+    ty: glyph.homeY + (Math.random() * 2 - 1) * P.swimCloudSize,
+  };
+}
+
+// ── SwimBehavior ──────────────────────────────────────────────────────────────
+class SwimBehavior {
+  apply(node, dt) {
+    if (node.isLed) return;
+    if (!node[SYM_SWIM]) resetSwimTarget(node);
+    const s  = node[SYM_SWIM];
+    const dx = s.tx - node.x, dy = s.ty - node.y;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.swimVelocity * dt;
+    if (d <= sp) {
+      node.x = s.tx; node.y = s.ty;
+      s.tx = node.homeX + (Math.random() * 2 - 1) * P.swimCloudSize;
+      s.ty = node.homeY + (Math.random() * 2 - 1) * P.swimCloudSize;
+    } else {
+      node.x += dx / d * sp;
+      node.y += dy / d * sp;
+    }
+  }
+}
+
+// ── PathFollowBehavior ────────────────────────────────────────────────────────
+class PathFollowBehavior {
+  apply(node, dt) {
+    if (!node.isLed) return;
+    const dx = node.pathX - node.x, dy = node.pathY - node.y;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.followVelocity * dt;
+    if (d <= sp) { node.x = node.pathX; node.y = node.pathY; }
+    else         { node.x += dx / d * sp; node.y += dy / d * sp; }
+  }
+}
+
+// ── OpacityBehavior ───────────────────────────────────────────────────────────
+class OpacityBehavior {
+  apply(node, dt) {
+    const tgt  = node.isLed ? P.fgOpacity : P.bgOpacity;
+    const rate = node.isLed ? P.fadeFg    : P.fadeBg;
+    const d    = tgt - node.opacity;
+    const s    = rate * dt;
+    node.opacity = Math.abs(d) < s ? tgt : node.opacity + Math.sign(d) * s;
+  }
+}
+
+// ── RotationBehavior ──────────────────────────────────────────────────────────
+class RotationBehavior {
+  apply(node, dt) {
+    const tgt  = node.isLed ? node.pathRot : 0;
+    const rate = node.isLed ? P.rotToVel   : P.rotBackVel;
+    const d    = wrapAngle(tgt - node.rotation);
+    const s    = rate * dt;
+    node.rotation = Math.abs(d) < s ? tgt : node.rotation + Math.sign(d) * s;
+  }
+}
+
+// ── PathAssignBehavior ────────────────────────────────────────────────────────
+// Applied to NTTextObject. Writes pathX/Y/Rot onto each glyph before they update.
+class PathAssignBehavior {
+  apply(node, dt, book) {
+    if (!node.isLed) return;
+    const path = book.path;
+    const pn   = path.length;
+    if (pn < 2) return;
+
+    // arcD[k] = cumulative arc distance stepping k points back from newest
+    const arcD = new Float64Array(pn);
+    for (let k = 1; k < pn; k++) {
+      const newer = path[pn - k];
+      const older = path[pn - 1 - k];
+      arcD[k] = arcD[k - 1] + Math.hypot(older.x - newer.x, older.y - newer.y);
+    }
+
+    const pathLen = arcD[pn - 1];
+    const startD  = P.pathOffset * P.pathSpacing * book.dpr;
+    let cumW = 0;
+
+    for (const g of node.glyphs) {
+      const dist = startD + cumW + g.advance / 2;
+      cumW += g.advance;
+
+      if (dist >= pathLen) {
+        g.pathX = g.x; g.pathY = g.y; g.pathRot = g.rotation;
+        continue;
+      }
+
+      let lo = 0, hi = pn - 2;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (arcD[mid] <= dist) lo = mid; else hi = mid - 1;
+      }
+
+      const pA = path[pn - 1 - lo];
+      const pB = path[pn - 2 - lo];
+      if (!pB) { g.pathX = pA.x; g.pathY = pA.y; g.pathRot = 0; continue; }
+
+      const segLen = arcD[lo + 1] - arcD[lo];
+      const t      = segLen > 0 ? (dist - arcD[lo]) / segLen : 0;
+      g.pathX   = pA.x + (pB.x - pA.x) * t;
+      g.pathY   = pA.y + (pB.y - pA.y) * t;
+      g.pathRot = Math.atan2(pA.y - pB.y, pA.x - pB.x);
+    }
+  }
+}
+
+// ── ShakeBehavior ─────────────────────────────────────────────────────────────
+// Rapid random offset ±shakeAmount px around current position, updated at shakeFreq Hz.
+class ShakeBehavior {
+  apply(node, dt, book) {
+    if (!node[SYM_SHAKE]) node[SYM_SHAKE] = { t: 0, ox: 0, oy: 0 };
+    const s = node[SYM_SHAKE];
+    s.t += dt;
+    const period = 1 / Math.max(P.shakeFreq, 0.1);
+    if (s.t >= period) {
+      s.t -= period;
+      const a = P.shakeAmount * book.dpr;
+      s.ox = (Math.random() * 2 - 1) * a;
+      s.oy = (Math.random() * 2 - 1) * a;
+    }
+    node.x += s.ox;
+    node.y += s.oy;
+  }
+}
+
+// ── PulseBehavior ─────────────────────────────────────────────────────────────
+// Sinusoidal scale oscillation. Stores phase per-node via SYM_PULSE.
+// NTGlyph.draw() reads node.pulseScale and calls ctx.scale() accordingly.
+class PulseBehavior {
+  apply(node, dt) {
+    if (!node[SYM_PULSE]) node[SYM_PULSE] = { phase: Math.random() * Math.PI * 2 };
+    const s = node[SYM_PULSE];
+    s.phase += P.pulseFreq * Math.PI * 2 * dt;
+    node.pulseScale = 1.0 + P.pulseScale * Math.sin(s.phase);
+  }
+}
+
+// ── FlickerBehavior ───────────────────────────────────────────────────────────
+// Randomly snaps opacity to 0 or the target level at flickerRate probability per frame.
+class FlickerBehavior {
+  apply(node) {
+    if (Math.random() < P.flickerRate) {
+      node.opacity = Math.random() < 0.5
+        ? 0
+        : (node.isLed ? P.fgOpacity : P.bgOpacity);
+    }
+  }
+}
+
+// ── WanderBehavior ────────────────────────────────────────────────────────────
+// Word-level drift: moves word.wanderOffsetX/Y toward a roaming target.
+// NTWord.draw() translates the canvas by this offset before drawing child glyphs.
+class WanderBehavior {
+  apply(node, dt) {
+    // Pause wander while any glyph in this word is being led
+    if (node.glyphs && node.glyphs.some(g => g.isLed)) {
+      node.wanderOffsetX = 0;
+      node.wanderOffsetY = 0;
+      return;
+    }
+    if (!node[SYM_WANDER]) {
+      node[SYM_WANDER] = {
+        tx: (Math.random() * 2 - 1) * P.swimCloudSize * 3,
+        ty: (Math.random() * 2 - 1) * P.swimCloudSize * 3,
+      };
+    }
+    const s  = node[SYM_WANDER];
+    const dx = s.tx - node.wanderOffsetX;
+    const dy = s.ty - node.wanderOffsetY;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.swimVelocity * dt;
+    if (d <= sp + 0.5) {
+      node.wanderOffsetX = s.tx;
+      node.wanderOffsetY = s.ty;
+      s.tx = (Math.random() * 2 - 1) * P.swimCloudSize * 3;
+      s.ty = (Math.random() * 2 - 1) * P.swimCloudSize * 3;
+    } else {
+      node.wanderOffsetX += dx / d * sp;
+      node.wanderOffsetY += dy / d * sp;
+    }
+  }
+}
+
+// ── GravityBehavior ───────────────────────────────────────────────────────────
+// Downward velocity accumulation (px/s²), clamped at canvas bottom with bounce.
+class GravityBehavior {
+  apply(node, dt, book) {
+    if (!node[SYM_GRAVITY]) node[SYM_GRAVITY] = { vy: 0 };
+    const s = node[SYM_GRAVITY];
+    if (node.isLed) { s.vy = 0; return; }
+    s.vy  += P.gravityStrength * dt;
+    node.y += s.vy * dt;
+    const floor = book.H - 2;
+    if (node.y >= floor) {
+      node.y = floor;
+      s.vy   = -Math.abs(s.vy) * P.gravityBounce;
+    }
+  }
+}
+
+// ── Singleton instances ───────────────────────────────────────────────────────
+const swimBehavior       = new SwimBehavior();
+const pathFollowBehavior = new PathFollowBehavior();
+const opacityBehavior    = new OpacityBehavior();
+const rotationBehavior   = new RotationBehavior();
+const pathAssignBehavior = new PathAssignBehavior();
+const shakeBehavior      = new ShakeBehavior();
+const pulseBehavior      = new PulseBehavior();
+const flickerBehavior    = new FlickerBehavior();
+const wanderBehavior     = new WanderBehavior();
+const gravityBehavior    = new GravityBehavior();
+
+// Populate registry instances (order matches BEHAVIOR_REGISTRY array above)
+BEHAVIOR_REGISTRY[0].instance = swimBehavior;
+BEHAVIOR_REGISTRY[1].instance = shakeBehavior;
+BEHAVIOR_REGISTRY[2].instance = pulseBehavior;
+BEHAVIOR_REGISTRY[3].instance = flickerBehavior;
+BEHAVIOR_REGISTRY[4].instance = gravityBehavior;
+BEHAVIOR_REGISTRY[5].instance = wanderBehavior;
+BEHAVIOR_REGISTRY[6].instance = pathAssignBehavior;
+
+// ── Scene ─────────────────────────────────────────────────────────────────────
+class Scene {
+  constructor(canvas) {
+    this.canvas  = canvas;
+    this.ctx     = canvas.getContext('2d');
+    this.book    = new NTBook();
+    this.active  = null;
+    this.lastTs  = null;
+    this._fontPx = 18;
+    this._resize();
+    this._build();   // initial build uses enabledByDefault (checkboxes not yet in DOM)
+    this._bind();
+  }
+
+  _resize() {
+    this.dpr = window.devicePixelRatio || 1;
+    const w  = Math.max(1, window.innerWidth  - 240);
+    const h  = Math.max(1, window.innerHeight);
+    this.canvas.width        = Math.round(w * this.dpr);
+    this.canvas.height       = Math.round(h * this.dpr);
+    this.canvas.style.width  = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.book.W   = this.canvas.width;
+    this.book.H   = this.canvas.height;
+    this.book.dpr = this.dpr;
+  }
+
+  _build() {
+    const ctx = this.ctx;
+    const W   = this.book.W;
+    const H   = this.book.H;
+    const dpr = this.dpr;
+
+    this.book.children = [];
+    this.active        = null;
+    this.book.path     = [];
+
+    // Read poem text
+    const rawText = document.getElementById('poem-input').value;
+    const lines   = rawText.split('\n').filter(l => l.trim());
+
+    // Read enabled behaviours (fall back to default if checkbox not yet in DOM)
+    const enabled = {};
+    for (const b of BEHAVIOR_REGISTRY) {
+      const cb = document.getElementById('cb-' + b.name);
+      enabled[b.name] = cb ? cb.checked : b.enabledByDefault;
+    }
+
+    // Responsive font: scale down so longest line fits 85% of canvas width
+    let fontPx = Math.round(P.fontSize * dpr);
+    ctx.font = makeFont(fontPx);
+    const maxLineW = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+    if (maxLineW > 0 && maxLineW > W * 0.85) {
+      fontPx = Math.floor(fontPx * (W * 0.85) / maxLineW);
+    }
+    this._fontPx = fontPx;
+
+    const pad = Math.round(16 * dpr);
+
+    for (const text of lines) {
+      const line = new NTTextObject(text, ctx, fontPx);
+
+      // Line-level behaviours
+      if (enabled['PathAssign']) line.addBehavior(pathAssignBehavior);
+
+      // Word-level behaviours
+      for (const word of line.words) {
+        if (enabled['Wander']) word.addBehavior(wanderBehavior);
+      }
+
+      // Glyph-level behaviours
+      for (const g of line.glyphs) {
+        g.homeX = pad + Math.random() * Math.max(1, W - 2 * pad);
+        g.homeY = pad + Math.random() * Math.max(1, H - 2 * pad);
+        g.x     = g.homeX;
+        g.y     = g.homeY;
+        resetSwimTarget(g);
+
+        if (enabled['Swim'])    g.addBehavior(swimBehavior);
+        g.addBehavior(pathFollowBehavior);   // always on
+        g.addBehavior(opacityBehavior);      // always on
+        g.addBehavior(rotationBehavior);     // always on
+        if (enabled['Shake'])   g.addBehavior(shakeBehavior);
+        if (enabled['Pulse'])   g.addBehavior(pulseBehavior);
+        if (enabled['Flicker']) g.addBehavior(flickerBehavior);
+        if (enabled['Gravity']) g.addBehavior(gravityBehavior);
+      }
+
+      this.book.addChild(line);
+    }
+  }
+
+  _bind() {
+    const c = this.canvas;
+    c.addEventListener('pointerdown',   e => this._onDown(e));
+    c.addEventListener('pointermove',   e => this._onMove(e));
+    c.addEventListener('pointerup',     e => this._onUp());
+    c.addEventListener('pointercancel', e => this._onUp());
+    window.addEventListener('resize', () => { this._resize(); this._build(); });
+  }
+
+  _toCanvas(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * this.dpr,
+      y: (e.clientY - r.top)  * this.dpr,
+    };
+  }
+
+  _onDown(e) {
+    e.preventDefault();
+    const { x, y } = this._toCanvas(e);
+    let best = null, bestD = Infinity;
+    for (const line of this.book.lines) {
+      const d = line.nearestGlyphDist(x, y);
+      if (d < bestD) { bestD = d; best = line; }
+    }
+    if (best) {
+      if (this.active && this.active !== best) this.active.setLed(false);
+      this.active = best;
+      best.setLed(true);
+      this.book.path = [{ x, y }];
+    }
+  }
+
+  _onMove(e) {
+    if (!this.active) return;
+    e.preventDefault();
+    const { x, y } = this._toCanvas(e);
+    const path = this.book.path;
+    const last = path[path.length - 1];
+    if (Math.hypot(x - last.x, y - last.y) >= P.pathSpacing * this.dpr) {
+      path.push({ x, y });
+      if (path.length > P.maxPathLen) path.shift();
+    }
+  }
+
+  _onUp() {
+    if (this.active) { this.active.setLed(false); this.active = null; }
+    this.book.path = [];
+  }
+
+  update(dt) {
+    this.book.update(dt, this.book);
+  }
+
+  render() {
+    const ctx  = this.ctx;
+    const W    = this.book.W;
+    const H    = this.book.H;
+    const path = this.book.path;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    if (path.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(255,255,255,${P.pathAlpha})`;
+      ctx.lineWidth   = 1.5 * this.dpr;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+      ctx.stroke();
+    }
+
+    ctx.font         = makeFont(this._fontPx);
+    ctx.fillStyle    = '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign    = 'center';
+    this.book.draw(ctx);
+  }
+
+  loop(ts) {
+    if (this.lastTs === null) this.lastTs = ts;
+    const dt = clamp((ts - this.lastTs) / 1000, 0, 0.05);
+    this.lastTs = ts;
+    this.update(dt);
+    this.render();
+    requestAnimationFrame(t => this.loop(t));
+  }
+
+  start() {
+    requestAnimationFrame(t => this.loop(t));
+  }
+}
+
+// ── UI Generation ─────────────────────────────────────────────────────────────
+function buildUI(scene) {
+  const glyphDiv = document.getElementById('glyph-behaviors');
+  const wordDiv  = document.getElementById('word-behaviors');
+  const lineDiv  = document.getElementById('line-behaviors');
+
+  for (const b of BEHAVIOR_REGISTRY) {
+    const row = document.createElement('div');
+    row.className = 'beh-row';
+
+    const cb = document.createElement('input');
+    cb.type    = 'checkbox';
+    cb.id      = 'cb-' + b.name;
+    cb.checked = b.enabledByDefault;
+    cb.title   = b.description;
+    cb.addEventListener('change', () => scene._build());
+
+    const lbl = document.createElement('label');
+    lbl.htmlFor     = cb.id;
+    lbl.textContent = b.name;
+    lbl.title       = b.description;
+
+    row.appendChild(cb);
+    row.appendChild(lbl);
+
+    if      (b.level === 'glyph') glyphDiv.appendChild(row);
+    else if (b.level === 'word')  wordDiv.appendChild(row);
+    else if (b.level === 'line')  lineDiv.appendChild(row);
+  }
+
+  const paramsDiv = document.getElementById('params');
+  for (const p of PARAM_REGISTRY) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+
+    const header = document.createElement('div');
+    header.className = 'param-header';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className   = 'param-name';
+    nameSpan.textContent = p.label;
+
+    const valSpan = document.createElement('span');
+    valSpan.className   = 'param-val';
+    valSpan.id          = 'pv-' + p.key;
+    valSpan.textContent = fmtVal(p);
+
+    header.appendChild(nameSpan);
+    header.appendChild(valSpan);
+
+    const slider = document.createElement('input');
+    slider.type  = 'range';
+    slider.min   = p.min;
+    slider.max   = p.max;
+    slider.step  = p.step;
+    slider.value = P[p.key];
+    slider.addEventListener('input', () => {
+      P[p.key] = parseFloat(slider.value);
+      document.getElementById('pv-' + p.key).textContent = fmtVal(p);
+      if (p.rebuild) scene._build();
+    });
+
+    row.appendChild(header);
+    row.appendChild(slider);
+    paramsDiv.appendChild(row);
+  }
+
+  document.getElementById('rebuild-btn')
+    .addEventListener('click', () => scene._build());
+
+  document.getElementById('poem-input')
+    .addEventListener('blur', () => scene._build());
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+const scene = new Scene(document.getElementById('c'));
+buildUI(scene);
+scene.start();
+</script>
+</body>
+</html>

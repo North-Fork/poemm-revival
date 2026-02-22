@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>FontName</key>
+    <string>GillSans-Bold</string>
+    <key>Properties-iPhone</key>
+    <dict>
+        <key>FontSize</key>
+        <integer>26</integer>
+    </dict>
+    <key>Properties-iPad</key>
+    <dict>
+        <key>FontSize</key>
+        <integer>42</integer>
+    </dict>
+    <key>TransitionWindowMinutes</key>
+    <real>30</real>
+</dict>
+</plist>

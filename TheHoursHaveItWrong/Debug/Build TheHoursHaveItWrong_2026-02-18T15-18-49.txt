@@ -1,0 +1,25 @@
+
+Showing Recent Issues
+
+Build target TheHoursHaveItWrong of project TheHoursHaveItWrong with configuration Debug
+
+Ld /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Products/Debug-iphonesimulator/TheHoursHaveItWrong.app/TheHoursHaveItWrong.debug.dylib normal (in target 'TheHoursHaveItWrong' from project 'TheHoursHaveItWrong')
+    cd /Users/jasonlocal/Documents/Coding-Experiments/TheHoursHaveItWrong/TheHoursHaveItWrong
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios16.6-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Products/Debug-iphonesimulator -F/Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Products/Debug-iphonesimulator -filelist /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/TheHoursHaveItWrong.build/Debug-iphonesimulator/TheHoursHaveItWrong.build/Objects-normal/arm64/TheHoursHaveItWrong.LinkFileList -install_name @rpath/TheHoursHaveItWrong.debug.dylib -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/TheHoursHaveItWrong.build/Debug-iphonesimulator/TheHoursHaveItWrong.build/Objects-normal/arm64/TheHoursHaveItWrong_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/TheHoursHaveItWrong.build/Debug-iphonesimulator/TheHoursHaveItWrong.build/Objects-normal/arm64/TheHoursHaveItWrong_dependency_info.dat -fobjc-link-runtime -fprofile-instr-generate -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Intermediates.noindex/TheHoursHaveItWrong.build/Debug-iphonesimulator/TheHoursHaveItWrong.build/Objects-normal/arm64/TheHoursHaveItWrong.swiftmodule -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -framework SpriteKit -Xlinker -no_adhoc_codesign -o /Users/jasonlocal/Library/Developer/Xcode/DerivedData/TheHoursHaveItWrong-gfkhmghmkuaxxjadlctydveilzoh/Build/Products/Debug-iphonesimulator/TheHoursHaveItWrong.app/TheHoursHaveItWrong.debug.dylib
+
+ld: warning: Could not parse or use implicit file '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore.tbd': cannot link directly with 'SwiftUICore' because product being built is not an allowed client of it
+Undefined symbols for architecture arm64:
+  "_main", referenced from:
+      ___debug_main_executable_dylib_entry_point in command-line-aliases-file
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+Could not parse or use implicit file '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore.tbd': cannot link directly with 'SwiftUICore' because product being built is not an allowed client of it
+
+Undefined symbol: _main
+
+Linker command failed with exit code 1 (use -v to see invocation)
+
+
+
+Build failed    2026-02-18, 15:18    2.9 seconds

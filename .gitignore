@@ -1,0 +1,44 @@
+# Claude Code local settings
+.claude/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xccheckout
+*.xcscmblueprint
+
+# iOS release archives (binary build artifacts — tracked separately)
+Releases/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# iOS poem source repos (each has its own OBX-Labs GitHub repo)
+Buzz-Aldrin-Doesnt-Know-Any-Better-iOS/
+No-Choice-About-the-Terminology-iOS/
+Smooth-Second-Bastard-iOS/
+The-Great-Migration-iOS/
+The-Summer-The-Rattlesnakes-Came-iOS/
+The-World-Around-You-Wants-Your-Death-iOS/
+The-World-Was-White-iOS/
+What-They-Speak-When-They-Speak-to-Me-iOs/
+
+# Scratch / duplicate folders
+TheHoursHaveItWrong copy/

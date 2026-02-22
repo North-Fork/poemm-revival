@@ -1,0 +1,694 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		723BA33F2F4692BF00DB6C58 /* PoemLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32F2F4692BF00DB6C58 /* PoemLoader.swift */; };
+		723BA3402F4692BF00DB6C58 /* PoemSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA33B2F4692BF00DB6C58 /* PoemSceneView.swift */; };
+		723BA3412F4692BF00DB6C58 /* AttractorNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3362F4692BF00DB6C58 /* AttractorNode.swift */; };
+		723BA3422F4692BF00DB6C58 /* BackgroundNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3372F4692BF00DB6C58 /* BackgroundNode.swift */; };
+		723BA3432F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3312F4692BF00DB6C58 /* TimePhaseManager.swift */; };
+		723BA3442F4692BF00DB6C58 /* WordNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3392F4692BF00DB6C58 /* WordNode.swift */; };
+		723BA3452F4692BF00DB6C58 /* AppProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32E2F4692BF00DB6C58 /* AppProperties.swift */; };
+		723BA3462F4692BF00DB6C58 /* PoemScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3382F4692BF00DB6C58 /* PoemScene.swift */; };
+		723BA3472F4692BF00DB6C58 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3302F4692BF00DB6C58 /* TimePhase.swift */; };
+		723BA3482F4692BF00DB6C58 /* poem.txt in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3342F4692BF00DB6C58 /* poem.txt */; };
+		723BA3492F4692BF00DB6C58 /* CircadianProperties.plist in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3332F4692BF00DB6C58 /* CircadianProperties.plist */; };
+		723BA34A2F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = 723BA33D2F4692BF00DB6C58 /* XCODE_SETUP.md */; };
+		723BA34B2F4692BF00DB6C58 /* poem.txt in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3342F4692BF00DB6C58 /* poem.txt */; };
+		723BA34C2F4692BF00DB6C58 /* CircadianProperties.plist in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3332F4692BF00DB6C58 /* CircadianProperties.plist */; };
+		723BA34D2F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = 723BA33D2F4692BF00DB6C58 /* XCODE_SETUP.md */; };
+		723BA34E2F4692BF00DB6C58 /* PoemLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32F2F4692BF00DB6C58 /* PoemLoader.swift */; };
+		723BA34F2F4692BF00DB6C58 /* PoemSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA33B2F4692BF00DB6C58 /* PoemSceneView.swift */; };
+		723BA3502F4692BF00DB6C58 /* AttractorNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3362F4692BF00DB6C58 /* AttractorNode.swift */; };
+		723BA3512F4692BF00DB6C58 /* BackgroundNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3372F4692BF00DB6C58 /* BackgroundNode.swift */; };
+		723BA3522F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3312F4692BF00DB6C58 /* TimePhaseManager.swift */; };
+		723BA3532F4692BF00DB6C58 /* WordNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3392F4692BF00DB6C58 /* WordNode.swift */; };
+		723BA3542F4692BF00DB6C58 /* AppProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32E2F4692BF00DB6C58 /* AppProperties.swift */; };
+		723BA3552F4692BF00DB6C58 /* PoemScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3382F4692BF00DB6C58 /* PoemScene.swift */; };
+		723BA3562F4692BF00DB6C58 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3302F4692BF00DB6C58 /* TimePhase.swift */; };
+		723BA3572F4692BF00DB6C58 /* PoemLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32F2F4692BF00DB6C58 /* PoemLoader.swift */; };
+		723BA3582F4692BF00DB6C58 /* PoemSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA33B2F4692BF00DB6C58 /* PoemSceneView.swift */; };
+		723BA3592F4692BF00DB6C58 /* AttractorNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3362F4692BF00DB6C58 /* AttractorNode.swift */; };
+		723BA35A2F4692BF00DB6C58 /* BackgroundNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3372F4692BF00DB6C58 /* BackgroundNode.swift */; };
+		723BA35B2F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3312F4692BF00DB6C58 /* TimePhaseManager.swift */; };
+		723BA35C2F4692BF00DB6C58 /* WordNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3392F4692BF00DB6C58 /* WordNode.swift */; };
+		723BA35D2F4692BF00DB6C58 /* AppProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA32E2F4692BF00DB6C58 /* AppProperties.swift */; };
+		723BA35E2F4692BF00DB6C58 /* PoemScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3382F4692BF00DB6C58 /* PoemScene.swift */; };
+		723BA35F2F4692BF00DB6C58 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723BA3302F4692BF00DB6C58 /* TimePhase.swift */; };
+		723BA3602F4692BF00DB6C58 /* poem.txt in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3342F4692BF00DB6C58 /* poem.txt */; };
+		723BA3612F4692BF00DB6C58 /* CircadianProperties.plist in Resources */ = {isa = PBXBuildFile; fileRef = 723BA3332F4692BF00DB6C58 /* CircadianProperties.plist */; };
+		723BA3622F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = 723BA33D2F4692BF00DB6C58 /* XCODE_SETUP.md */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		723BA3112F4691B600DB6C58 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 723BA2FB2F4691B500DB6C58 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 723BA3022F4691B500DB6C58;
+			remoteInfo = "The-Hours-Have-It-Wrong";
+		};
+		723BA31B2F4691B600DB6C58 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 723BA2FB2F4691B500DB6C58 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 723BA3022F4691B500DB6C58;
+			remoteInfo = "The-Hours-Have-It-Wrong";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		723BA3032F4691B500DB6C58 /* The-Hours-Have-It-Wrong.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "The-Hours-Have-It-Wrong.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		723BA3102F4691B600DB6C58 /* The-Hours-Have-It-WrongTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "The-Hours-Have-It-WrongTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		723BA31A2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "The-Hours-Have-It-WrongUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		723BA32E2F4692BF00DB6C58 /* AppProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppProperties.swift; sourceTree = "<group>"; };
+		723BA32F2F4692BF00DB6C58 /* PoemLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoemLoader.swift; sourceTree = "<group>"; };
+		723BA3302F4692BF00DB6C58 /* TimePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
+		723BA3312F4692BF00DB6C58 /* TimePhaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimePhaseManager.swift; sourceTree = "<group>"; };
+		723BA3332F4692BF00DB6C58 /* CircadianProperties.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = CircadianProperties.plist; sourceTree = "<group>"; };
+		723BA3342F4692BF00DB6C58 /* poem.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = poem.txt; sourceTree = "<group>"; };
+		723BA3362F4692BF00DB6C58 /* AttractorNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttractorNode.swift; sourceTree = "<group>"; };
+		723BA3372F4692BF00DB6C58 /* BackgroundNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundNode.swift; sourceTree = "<group>"; };
+		723BA3382F4692BF00DB6C58 /* PoemScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoemScene.swift; sourceTree = "<group>"; };
+		723BA3392F4692BF00DB6C58 /* WordNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordNode.swift; sourceTree = "<group>"; };
+		723BA33B2F4692BF00DB6C58 /* PoemSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoemSceneView.swift; sourceTree = "<group>"; };
+		723BA33D2F4692BF00DB6C58 /* XCODE_SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = XCODE_SETUP.md; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		723BA3052F4691B500DB6C58 /* The-Hours-Have-It-Wrong */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "The-Hours-Have-It-Wrong";
+			sourceTree = "<group>";
+		};
+		723BA3132F4691B600DB6C58 /* The-Hours-Have-It-WrongTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "The-Hours-Have-It-WrongTests";
+			sourceTree = "<group>";
+		};
+		723BA31D2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "The-Hours-Have-It-WrongUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		723BA3002F4691B500DB6C58 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA30D2F4691B600DB6C58 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA3172F4691B600DB6C58 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		723BA2FA2F4691B500DB6C58 = {
+			isa = PBXGroup;
+			children = (
+				723BA3052F4691B500DB6C58 /* The-Hours-Have-It-Wrong */,
+				723BA3132F4691B600DB6C58 /* The-Hours-Have-It-WrongTests */,
+				723BA31D2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests */,
+				723BA3042F4691B500DB6C58 /* Products */,
+				723BA33E2F4692BF00DB6C58 /* TheHoursHaveItWrong */,
+			);
+			sourceTree = "<group>";
+		};
+		723BA3042F4691B500DB6C58 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				723BA3032F4691B500DB6C58 /* The-Hours-Have-It-Wrong.app */,
+				723BA3102F4691B600DB6C58 /* The-Hours-Have-It-WrongTests.xctest */,
+				723BA31A2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		723BA3322F4692BF00DB6C58 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				723BA32E2F4692BF00DB6C58 /* AppProperties.swift */,
+				723BA32F2F4692BF00DB6C58 /* PoemLoader.swift */,
+				723BA3302F4692BF00DB6C58 /* TimePhase.swift */,
+				723BA3312F4692BF00DB6C58 /* TimePhaseManager.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		723BA3352F4692BF00DB6C58 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				723BA3332F4692BF00DB6C58 /* CircadianProperties.plist */,
+				723BA3342F4692BF00DB6C58 /* poem.txt */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		723BA33A2F4692BF00DB6C58 /* Scene */ = {
+			isa = PBXGroup;
+			children = (
+				723BA3362F4692BF00DB6C58 /* AttractorNode.swift */,
+				723BA3372F4692BF00DB6C58 /* BackgroundNode.swift */,
+				723BA3382F4692BF00DB6C58 /* PoemScene.swift */,
+				723BA3392F4692BF00DB6C58 /* WordNode.swift */,
+			);
+			path = Scene;
+			sourceTree = "<group>";
+		};
+		723BA33C2F4692BF00DB6C58 /* SwiftUI */ = {
+			isa = PBXGroup;
+			children = (
+				723BA33B2F4692BF00DB6C58 /* PoemSceneView.swift */,
+			);
+			path = SwiftUI;
+			sourceTree = "<group>";
+		};
+		723BA33E2F4692BF00DB6C58 /* TheHoursHaveItWrong */ = {
+			isa = PBXGroup;
+			children = (
+				723BA3322F4692BF00DB6C58 /* Model */,
+				723BA3352F4692BF00DB6C58 /* Resources */,
+				723BA33A2F4692BF00DB6C58 /* Scene */,
+				723BA33C2F4692BF00DB6C58 /* SwiftUI */,
+				723BA33D2F4692BF00DB6C58 /* XCODE_SETUP.md */,
+			);
+			path = TheHoursHaveItWrong;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		723BA3022F4691B500DB6C58 /* The-Hours-Have-It-Wrong */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 723BA3242F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-Wrong" */;
+			buildPhases = (
+				723BA2FF2F4691B500DB6C58 /* Sources */,
+				723BA3002F4691B500DB6C58 /* Frameworks */,
+				723BA3012F4691B500DB6C58 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				723BA3052F4691B500DB6C58 /* The-Hours-Have-It-Wrong */,
+			);
+			name = "The-Hours-Have-It-Wrong";
+			packageProductDependencies = (
+			);
+			productName = "The-Hours-Have-It-Wrong";
+			productReference = 723BA3032F4691B500DB6C58 /* The-Hours-Have-It-Wrong.app */;
+			productType = "com.apple.product-type.application";
+		};
+		723BA30F2F4691B600DB6C58 /* The-Hours-Have-It-WrongTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 723BA3272F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-WrongTests" */;
+			buildPhases = (
+				723BA30C2F4691B600DB6C58 /* Sources */,
+				723BA30D2F4691B600DB6C58 /* Frameworks */,
+				723BA30E2F4691B600DB6C58 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				723BA3122F4691B600DB6C58 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				723BA3132F4691B600DB6C58 /* The-Hours-Have-It-WrongTests */,
+			);
+			name = "The-Hours-Have-It-WrongTests";
+			packageProductDependencies = (
+			);
+			productName = "The-Hours-Have-It-WrongTests";
+			productReference = 723BA3102F4691B600DB6C58 /* The-Hours-Have-It-WrongTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		723BA3192F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 723BA32A2F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-WrongUITests" */;
+			buildPhases = (
+				723BA3162F4691B600DB6C58 /* Sources */,
+				723BA3172F4691B600DB6C58 /* Frameworks */,
+				723BA3182F4691B600DB6C58 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				723BA31C2F4691B600DB6C58 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				723BA31D2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests */,
+			);
+			name = "The-Hours-Have-It-WrongUITests";
+			packageProductDependencies = (
+			);
+			productName = "The-Hours-Have-It-WrongUITests";
+			productReference = 723BA31A2F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		723BA2FB2F4691B500DB6C58 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					723BA3022F4691B500DB6C58 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					723BA30F2F4691B600DB6C58 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 723BA3022F4691B500DB6C58;
+					};
+					723BA3192F4691B600DB6C58 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 723BA3022F4691B500DB6C58;
+					};
+				};
+			};
+			buildConfigurationList = 723BA2FE2F4691B500DB6C58 /* Build configuration list for PBXProject "The-Hours-Have-It-Wrong" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 723BA2FA2F4691B500DB6C58;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 723BA3042F4691B500DB6C58 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				723BA3022F4691B500DB6C58 /* The-Hours-Have-It-Wrong */,
+				723BA30F2F4691B600DB6C58 /* The-Hours-Have-It-WrongTests */,
+				723BA3192F4691B600DB6C58 /* The-Hours-Have-It-WrongUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		723BA3012F4691B500DB6C58 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA3482F4692BF00DB6C58 /* poem.txt in Resources */,
+				723BA3492F4692BF00DB6C58 /* CircadianProperties.plist in Resources */,
+				723BA34A2F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA30E2F4691B600DB6C58 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA34B2F4692BF00DB6C58 /* poem.txt in Resources */,
+				723BA34C2F4692BF00DB6C58 /* CircadianProperties.plist in Resources */,
+				723BA34D2F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA3182F4691B600DB6C58 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA3602F4692BF00DB6C58 /* poem.txt in Resources */,
+				723BA3612F4692BF00DB6C58 /* CircadianProperties.plist in Resources */,
+				723BA3622F4692BF00DB6C58 /* XCODE_SETUP.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		723BA2FF2F4691B500DB6C58 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA33F2F4692BF00DB6C58 /* PoemLoader.swift in Sources */,
+				723BA3402F4692BF00DB6C58 /* PoemSceneView.swift in Sources */,
+				723BA3412F4692BF00DB6C58 /* AttractorNode.swift in Sources */,
+				723BA3422F4692BF00DB6C58 /* BackgroundNode.swift in Sources */,
+				723BA3432F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */,
+				723BA3442F4692BF00DB6C58 /* WordNode.swift in Sources */,
+				723BA3452F4692BF00DB6C58 /* AppProperties.swift in Sources */,
+				723BA3462F4692BF00DB6C58 /* PoemScene.swift in Sources */,
+				723BA3472F4692BF00DB6C58 /* TimePhase.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA30C2F4691B600DB6C58 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA34E2F4692BF00DB6C58 /* PoemLoader.swift in Sources */,
+				723BA34F2F4692BF00DB6C58 /* PoemSceneView.swift in Sources */,
+				723BA3502F4692BF00DB6C58 /* AttractorNode.swift in Sources */,
+				723BA3512F4692BF00DB6C58 /* BackgroundNode.swift in Sources */,
+				723BA3522F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */,
+				723BA3532F4692BF00DB6C58 /* WordNode.swift in Sources */,
+				723BA3542F4692BF00DB6C58 /* AppProperties.swift in Sources */,
+				723BA3552F4692BF00DB6C58 /* PoemScene.swift in Sources */,
+				723BA3562F4692BF00DB6C58 /* TimePhase.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		723BA3162F4691B600DB6C58 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				723BA3572F4692BF00DB6C58 /* PoemLoader.swift in Sources */,
+				723BA3582F4692BF00DB6C58 /* PoemSceneView.swift in Sources */,
+				723BA3592F4692BF00DB6C58 /* AttractorNode.swift in Sources */,
+				723BA35A2F4692BF00DB6C58 /* BackgroundNode.swift in Sources */,
+				723BA35B2F4692BF00DB6C58 /* TimePhaseManager.swift in Sources */,
+				723BA35C2F4692BF00DB6C58 /* WordNode.swift in Sources */,
+				723BA35D2F4692BF00DB6C58 /* AppProperties.swift in Sources */,
+				723BA35E2F4692BF00DB6C58 /* PoemScene.swift in Sources */,
+				723BA35F2F4692BF00DB6C58 /* TimePhase.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		723BA3122F4691B600DB6C58 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 723BA3022F4691B500DB6C58 /* The-Hours-Have-It-Wrong */;
+			targetProxy = 723BA3112F4691B600DB6C58 /* PBXContainerItemProxy */;
+		};
+		723BA31C2F4691B600DB6C58 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 723BA3022F4691B500DB6C58 /* The-Hours-Have-It-Wrong */;
+			targetProxy = 723BA31B2F4691B600DB6C58 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		723BA3222F4691B600DB6C58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		723BA3232F4691B600DB6C58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		723BA3252F4691B600DB6C58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-Wrong";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		723BA3262F4691B600DB6C58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-Wrong";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		723BA3282F4691B600DB6C58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-WrongTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/The-Hours-Have-It-Wrong.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/The-Hours-Have-It-Wrong";
+			};
+			name = Debug;
+		};
+		723BA3292F4691B600DB6C58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-WrongTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/The-Hours-Have-It-Wrong.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/The-Hours-Have-It-Wrong";
+			};
+			name = Release;
+		};
+		723BA32B2F4691B600DB6C58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-WrongUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "The-Hours-Have-It-Wrong";
+			};
+			name = Debug;
+		};
+		723BA32C2F4691B600DB6C58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Obx.The-Hours-Have-It-WrongUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "The-Hours-Have-It-Wrong";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		723BA2FE2F4691B500DB6C58 /* Build configuration list for PBXProject "The-Hours-Have-It-Wrong" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				723BA3222F4691B600DB6C58 /* Debug */,
+				723BA3232F4691B600DB6C58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		723BA3242F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-Wrong" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				723BA3252F4691B600DB6C58 /* Debug */,
+				723BA3262F4691B600DB6C58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		723BA3272F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-WrongTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				723BA3282F4691B600DB6C58 /* Debug */,
+				723BA3292F4691B600DB6C58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		723BA32A2F4691B600DB6C58 /* Build configuration list for PBXNativeTarget "The-Hours-Have-It-WrongUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				723BA32B2F4691B600DB6C58 /* Debug */,
+				723BA32C2F4691B600DB6C58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 723BA2FB2F4691B500DB6C58 /* Project object */;
+}

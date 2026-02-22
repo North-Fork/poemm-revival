@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>What They Speak When They Speak to Me — Jason Edward Lewis</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+canvas { position: fixed; inset: 0; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+// ── Parameters (from OKPoEMMProperties.plist — iPhone values) ─────────────────
+const P = {
+  swimVelocity:   10,           // px/s — background drift speed
+  swimCloudSize:  10,           // px  — drift radius around home position
+  followVelocity: 250,          // px/s — speed toward path target when led
+  pathSpacing:    15,           // px  — min distance between path points (logical)
+  maxPathLen:     128,          // max path points retained
+  pathOffset:     3,            // path points skipped from newest before first glyph
+  rotBackVel:     Math.PI / 4,  // rad/s — rotation return to 0 in swim mode
+  rotToVel:       Math.PI,      // rad/s — rotation toward path direction in led mode
+  bgOpacity:      0.15,
+  fgOpacity:      1.0,
+  fadeBg:         1  / 255 * 60, // opacity change per second (1 step/255 per frame at 60fps)
+  fadeFg:         2  / 255 * 60,
+  fontSize:       18,            // logical px
+  pathAlpha:      0.4,
+};
+
+// ── Poem ──────────────────────────────────────────────────────────────────────
+const POEM = [
+  "Livecolor splashing, sloshing from sidewalk to sidewalk",
+  "Driven by currents of lust fear hope obligation",
+  "",
+  "All movement channeled",
+  "Through those bodies these fractured vessels",
+  "Riven by demands, by pressures instigated",
+  "During one night's mistake borne through long years'",
+  "Acquaintance with the weight of a broom a steering wheel a pick and shovel.",
+  "",
+  "What do these bodies speak when they speak to me?",
+  "Spanish in chichicatenango, but no hola here.",
+  "",
+  "Here the straightedged beauty of simple function",
+  "Of an errand accomplished of successful consumption.",
+  "",
+  "What do they speak? javanese in jakarta.",
+  "Marathi in mumbai. when they greet me in turkish in berlin",
+  "Are they speaking to themselves or to me?",
+  "",
+  "We feast on our own lives in these streets;",
+  "Polycultural cannibalism wallowing in its own monohued blood.",
+];
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+function wrapAngle(a) {
+  while (a >  Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+function makeFont(px) {
+  return `bold ${px}px "Gill Sans", "GillSans-Bold", Georgia, serif`;
+}
+
+// ── NTNode — base scene-graph node ────────────────────────────────────────────
+//
+// Every node in the hierarchy (Book, TextObject, Word, Glyph) extends NTNode.
+// Each node owns:
+//   - a list of Behaviors that are applied to IT each frame
+//   - a list of child NTNodes whose update()/draw() it drives
+//
+// Behaviors applied to a node affect only that node, not its children.
+// To affect all glyphs, attach the behavior to each NTGlyph at build time.
+// To affect all words, attach to each NTWord, etc.
+// This mirrors the NextText architecture exactly and makes it possible to say
+// "apply this behavior to all 'e' glyphs" or "to the first word of each line".
+//
+class NTNode {
+  constructor() {
+    this.x         = 0;      // current rendered position (written by behaviors)
+    this.y         = 0;
+    this.homeX     = 0;      // assigned random home (set once at build time)
+    this.homeY     = 0;
+    this.rotation  = 0;      // radians
+    this.opacity   = P.bgOpacity;
+    this.isLed     = false;  // true when this node is following the touch path
+    this.behaviors = [];     // Behavior instances applied to THIS node
+    this.children  = [];     // child NTNodes
+  }
+
+  addBehavior(b) { this.behaviors.push(b); return this; }
+  addChild(c)    { this.children.push(c);  return this; }
+
+  // update() runs behaviors on this node, then recursively updates children.
+  // book is the root NTBook; behaviors access book.path, book.dpr, etc.
+  update(dt, book) {
+    for (const b of this.behaviors) b.apply(this, dt, book);
+    for (const c of this.children)  c.update(dt, book);
+  }
+
+  draw(ctx) {
+    for (const c of this.children) c.draw(ctx);
+  }
+}
+
+// ── NTGlyph — leaf node, one typographic character ───────────────────────────
+class NTGlyph extends NTNode {
+  constructor(ch, advance) {
+    super();
+    this.ch      = ch;
+    this.advance = advance;  // measured character advance width in canvas px
+    // Path-following targets written by PathAssignBehavior on the parent TextObject.
+    // Read by PathFollowBehavior and RotationBehavior on this node.
+    this.pathX   = 0;
+    this.pathY   = 0;
+    this.pathRot = 0;
+  }
+
+  draw(ctx) {
+    if (this.opacity < 0.005) return;
+    ctx.save();
+    ctx.globalAlpha = clamp(this.opacity, 0, 1);
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.fillText(this.ch, 0, 0);
+    ctx.restore();
+  }
+}
+
+// ── NTWord — groups the glyphs of one word ────────────────────────────────────
+// Behaviors can be attached here to affect all glyphs in a word as a unit,
+// or to affect the word node itself (e.g. a word-level opacity or position offset).
+class NTWord extends NTNode {
+  constructor(text, ctx, fontPx) {
+    super();
+    ctx.font = makeFont(fontPx);
+    for (const ch of text) {
+      this.addChild(new NTGlyph(ch, ctx.measureText(ch).width));
+    }
+  }
+  get glyphs() { return this.children; }
+}
+
+// ── NTTextObject — one poem line ──────────────────────────────────────────────
+// Owns NTWord children. Maintains a cached flat glyph list for path assignment
+// and nearest-glyph queries. When setLed(true), propagates isLed to all glyphs.
+class NTTextObject extends NTNode {
+  constructor(text, ctx, fontPx) {
+    super();
+    const words = text.split(' ').filter(w => w);
+    for (const w of words) this.addChild(new NTWord(w, ctx, fontPx));
+    // Cache flat glyph list — rebuilt once at construction
+    this._glyphs = this.children.flatMap(w => w.glyphs);
+  }
+
+  get words()  { return this.children; }
+  get glyphs() { return this._glyphs;  }
+
+  setLed(on) {
+    this.isLed = on;
+    for (const g of this._glyphs) {
+      g.isLed = on;
+      if (!on) resetSwimTarget(g);   // swim back toward home on release
+    }
+  }
+
+  nearestGlyphDist(px, py) {
+    let min = Infinity;
+    for (const g of this._glyphs)
+      min = Math.min(min, Math.hypot(g.x - px, g.y - py));
+    return min;
+  }
+}
+
+// ── NTBook — root node ────────────────────────────────────────────────────────
+// Holds scene-global state that behaviors read: the touch path, canvas dimensions,
+// and device pixel ratio.
+class NTBook extends NTNode {
+  constructor() {
+    super();
+    this.path = [];   // [{x, y}] in canvas px; newest = last element
+    this.W    = 0;
+    this.H    = 0;
+    this.dpr  = 1;
+  }
+  get lines() { return this.children; }
+}
+
+// ── Behavior protocol ─────────────────────────────────────────────────────────
+//
+// A Behavior is any object with:   apply(node, dt, book)
+//
+// Behaviors are stateless objects — per-node state is stored directly on the
+// node using a unique Symbol key. This allows the same singleton behavior
+// instance to be shared across every node it is attached to.
+//
+// Singleton instances are created after class definitions and referenced by name.
+
+// Symbol keys for per-node behavior state
+const SYM_SWIM = Symbol('swim');
+
+function resetSwimTarget(glyph) {
+  // Sets (or resets) the swim target to a random point near the glyph's home.
+  // Called at construction and whenever a glyph is released from led state.
+  glyph[SYM_SWIM] = {
+    tx: glyph.homeX + (Math.random() * 2 - 1) * P.swimCloudSize,
+    ty: glyph.homeY + (Math.random() * 2 - 1) * P.swimCloudSize,
+  };
+}
+
+// ── SwimBehavior ──────────────────────────────────────────────────────────────
+// Applied to NTGlyph. Moves the glyph toward a random target near homeX/Y.
+// When the target is reached, picks a new one. Inactive when isLed.
+class SwimBehavior {
+  apply(node, dt /*, book */) {
+    if (node.isLed) return;
+    if (!node[SYM_SWIM]) resetSwimTarget(node);
+    const s  = node[SYM_SWIM];
+    const dx = s.tx - node.x,  dy = s.ty - node.y;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.swimVelocity * dt;
+    if (d <= sp) {
+      node.x = s.tx; node.y = s.ty;
+      s.tx = node.homeX + (Math.random() * 2 - 1) * P.swimCloudSize;
+      s.ty = node.homeY + (Math.random() * 2 - 1) * P.swimCloudSize;
+    } else {
+      node.x += dx / d * sp;
+      node.y += dy / d * sp;
+    }
+  }
+}
+
+// ── PathFollowBehavior ────────────────────────────────────────────────────────
+// Applied to NTGlyph. Moves the glyph toward its path-assigned target position.
+// Targets are written each frame by PathAssignBehavior on the parent TextObject,
+// which always runs before this (parent update before children).
+class PathFollowBehavior {
+  apply(node, dt /*, book */) {
+    if (!node.isLed) return;
+    const dx = node.pathX - node.x,  dy = node.pathY - node.y;
+    const d  = Math.hypot(dx, dy);
+    const sp = P.followVelocity * dt;
+    if (d <= sp) { node.x = node.pathX; node.y = node.pathY; }
+    else         { node.x += dx / d * sp; node.y += dy / d * sp; }
+  }
+}
+
+// ── OpacityBehavior ───────────────────────────────────────────────────────────
+// Applied to NTGlyph. Fades opacity toward fgOpacity (led) or bgOpacity (swim).
+class OpacityBehavior {
+  apply(node, dt /*, book */) {
+    const tgt  = node.isLed ? P.fgOpacity : P.bgOpacity;
+    const rate = node.isLed ? P.fadeFg    : P.fadeBg;
+    const d    = tgt - node.opacity;
+    const s    = rate * dt;
+    node.opacity = Math.abs(d) < s ? tgt : node.opacity + Math.sign(d) * s;
+  }
+}
+
+// ── RotationBehavior ──────────────────────────────────────────────────────────
+// Applied to NTGlyph. Rotates toward path direction when led; returns to 0 when swimming.
+class RotationBehavior {
+  apply(node, dt /*, book */) {
+    const tgt  = node.isLed ? node.pathRot : 0;
+    const rate = node.isLed ? P.rotToVel  : P.rotBackVel;
+    const d    = wrapAngle(tgt - node.rotation);
+    const s    = rate * dt;
+    node.rotation = Math.abs(d) < s ? tgt : node.rotation + Math.sign(d) * s;
+  }
+}
+
+// ── PathAssignBehavior ────────────────────────────────────────────────────────
+// Applied to NTTextObject. Each frame, computes the position along the touch path
+// that each child glyph should target, and writes pathX/pathY/pathRot onto each
+// NTGlyph. Runs before children update (parent behaviors run before child.update()),
+// so PathFollowBehavior on each glyph always reads a fresh target.
+class PathAssignBehavior {
+  apply(node, dt, book) {
+    if (!node.isLed) return;
+    const path = book.path;
+    const pn   = path.length;
+    if (pn < 2) return;
+
+    // arcD[k] = cumulative distance going k steps backward from path[pn-1] (newest).
+    // arcD[0] = 0 (at newest point), arcD[pn-1] = total path length.
+    const arcD = new Float64Array(pn);
+    for (let k = 1; k < pn; k++) {
+      const newer = path[pn - k];
+      const older = path[pn - 1 - k];
+      arcD[k] = arcD[k - 1] + Math.hypot(older.x - newer.x, older.y - newer.y);
+    }
+
+    const pathLen = arcD[pn - 1];
+    // startD: distance from newest point before placing first glyph (canvas px)
+    const startD = P.pathOffset * P.pathSpacing * book.dpr;
+    let cumW = 0;
+
+    for (const g of node.glyphs) {
+      const dist = startD + cumW + g.advance / 2;
+      cumW += g.advance;
+
+      if (dist >= pathLen) {
+        // Path too short for this glyph — hold current position as target
+        g.pathX = g.x;  g.pathY = g.y;  g.pathRot = g.rotation;
+        continue;
+      }
+
+      // Binary search: largest lo where arcD[lo] <= dist
+      let lo = 0, hi = pn - 2;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (arcD[mid] <= dist) lo = mid; else hi = mid - 1;
+      }
+
+      const pA = path[pn - 1 - lo];      // newer end of segment (closer to touch)
+      const pB = path[pn - 2 - lo];      // older end
+      if (!pB) { g.pathX = pA.x; g.pathY = pA.y; g.pathRot = 0; continue; }
+
+      const segLen = arcD[lo + 1] - arcD[lo];
+      const t      = segLen > 0 ? (dist - arcD[lo]) / segLen : 0;
+      g.pathX   = pA.x + (pB.x - pA.x) * t;
+      g.pathY   = pA.y + (pB.y - pA.y) * t;
+      // Direction of travel: from older (pB) toward newer (pA)
+      g.pathRot = Math.atan2(pA.y - pB.y, pA.x - pB.x);
+    }
+  }
+}
+
+// ── Shared behavior singleton instances ───────────────────────────────────────
+// Stateless — safe to share across all nodes they are attached to.
+const swimBehavior       = new SwimBehavior();
+const pathFollowBehavior = new PathFollowBehavior();
+const opacityBehavior    = new OpacityBehavior();
+const rotationBehavior   = new RotationBehavior();
+const pathAssignBehavior = new PathAssignBehavior();
+
+// ── Scene — canvas lifecycle, builds the book, handles input ─────────────────
+class Scene {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.book   = new NTBook();
+    this.active = null;   // currently led NTTextObject
+    this.lastTs = null;
+    this._resize();
+    this._build();
+    this._bind();
+  }
+
+  _resize() {
+    this.dpr = window.devicePixelRatio || 1;
+    const w  = window.innerWidth;
+    const h  = window.innerHeight;
+    this.canvas.width  = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+    this.canvas.style.width  = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.book.W   = this.canvas.width;
+    this.book.H   = this.canvas.height;
+    this.book.dpr = this.dpr;
+  }
+
+  _build() {
+    const ctx = this.ctx;
+    const W   = this.book.W;
+    const H   = this.book.H;
+    const dpr = this.dpr;
+
+    // Discard any previous scene graph
+    this.book.children = [];
+    this.active = null;
+
+    // Responsive font: scale down so the longest line fits within 85% of canvas width
+    let fontPx = Math.round(P.fontSize * dpr);
+    ctx.font = makeFont(fontPx);
+    const maxLineW = POEM
+      .filter(l => l.trim())
+      .reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+    if (maxLineW > W * 0.85) {
+      fontPx = Math.floor(fontPx * (W * 0.85) / maxLineW);
+    }
+    this._fontPx = fontPx;
+
+    const pad = Math.round(16 * dpr);   // screen-edge margin for home positions
+
+    for (const text of POEM) {
+      if (!text.trim()) continue;
+
+      // Build the TextObject (line → words → glyphs)
+      const line = new NTTextObject(text, ctx, fontPx);
+
+      // Attach the line-level PathAssignBehavior.
+      // This runs before its children update, so glyph path targets are always fresh.
+      line.addBehavior(pathAssignBehavior);
+
+      // Scatter each glyph's home position randomly across the canvas,
+      // then attach the four glyph-level behaviors.
+      for (const g of line.glyphs) {
+        g.homeX = pad + Math.random() * Math.max(1, W - 2 * pad);
+        g.homeY = pad + Math.random() * Math.max(1, H - 2 * pad);
+        g.x     = g.homeX;
+        g.y     = g.homeY;
+        resetSwimTarget(g);
+
+        g.addBehavior(swimBehavior)
+         .addBehavior(pathFollowBehavior)
+         .addBehavior(opacityBehavior)
+         .addBehavior(rotationBehavior);
+      }
+
+      this.book.addChild(line);
+    }
+  }
+
+  _bind() {
+    const c = this.canvas;
+    c.addEventListener('pointerdown',   e => this._onDown(e));
+    c.addEventListener('pointermove',   e => this._onMove(e));
+    c.addEventListener('pointerup',     e => this._onUp(e));
+    c.addEventListener('pointercancel', e => this._onUp(e));
+    window.addEventListener('resize', () => { this._resize(); this._build(); });
+  }
+
+  _toCanvas(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * this.dpr,
+      y: (e.clientY - r.top)  * this.dpr,
+    };
+  }
+
+  _onDown(e) {
+    e.preventDefault();
+    const { x, y } = this._toCanvas(e);
+    let best = null, bestD = Infinity;
+    for (const line of this.book.lines) {
+      const d = line.nearestGlyphDist(x, y);
+      if (d < bestD) { bestD = d; best = line; }
+    }
+    if (best) {
+      if (this.active && this.active !== best) this.active.setLed(false);
+      this.active = best;
+      best.setLed(true);
+      this.book.path = [{ x, y }];
+    }
+  }
+
+  _onMove(e) {
+    if (!this.active) return;
+    e.preventDefault();
+    const { x, y } = this._toCanvas(e);
+    const path = this.book.path;
+    const last = path[path.length - 1];
+    if (Math.hypot(x - last.x, y - last.y) >= P.pathSpacing * this.dpr) {
+      path.push({ x, y });
+      if (path.length > P.maxPathLen) path.shift();
+    }
+  }
+
+  _onUp(e) {
+    if (this.active) { this.active.setLed(false); this.active = null; }
+    this.book.path = [];
+  }
+
+  update(dt) {
+    this.book.update(dt, this.book);
+  }
+
+  render() {
+    const ctx  = this.ctx;
+    const W    = this.book.W;
+    const H    = this.book.H;
+    const path = this.book.path;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // Touch path trail
+    if (path.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(255,255,255,${P.pathAlpha})`;
+      ctx.lineWidth   = 1.5 * this.dpr;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+      ctx.stroke();
+    }
+
+    // Glyphs — font and alignment set once here, shared by all NTGlyph.draw() calls
+    ctx.font         = makeFont(this._fontPx);
+    ctx.fillStyle    = '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign    = 'center';
+    this.book.draw(ctx);
+  }
+
+  loop(ts) {
+    if (this.lastTs === null) this.lastTs = ts;
+    const dt = clamp((ts - this.lastTs) / 1000, 0, 0.05);
+    this.lastTs = ts;
+    this.update(dt);
+    this.render();
+    requestAnimationFrame(t => this.loop(t));
+  }
+
+  start() {
+    requestAnimationFrame(t => this.loop(t));
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+new Scene(document.getElementById('c')).start();
+</script>
+</body>
+</html>

@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Particle Word</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+#panel h1 { font-size: 13px; color: #eee; margin-bottom: 14px;
+            font-weight: 600; letter-spacing: 0.04em; }
+
+.param-row { margin: 8px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 3px; }
+.param-name { font-size: 11px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; }
+
+input[type=range] {
+  width: 100%; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+#count-note { font-size: 10px; color: #555; margin-top: 3px; }
+
+.color-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.color-row label { font-size: 11px; color: #888; flex: 1; }
+input[type=color] {
+  width: 36px; height: 22px; border: 1px solid #333; background: none;
+  cursor: pointer; padding: 1px; border-radius: 3px;
+}
+.section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+                 color: #444; margin: 14px 0 6px; border-top: 1px solid #1e1e1e;
+                 padding-top: 8px; }
+
+
+#poem-text {
+  width: 100%; background: #181818; color: #eee;
+  border: 1px solid #2a2a2a; padding: 6px;
+  font-size: 13px; font-family: "Gill Sans", Georgia, serif;
+  line-height: 1.5; resize: vertical; min-height: 52px;
+}
+#poem-text:focus { outline: none; border-color: #336; }
+#apply-btn {
+  width: 100%; padding: 6px; margin-top: 5px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#apply-btn:hover  { background: #253545; }
+#apply-btn:active { background: #0f1f2f; }
+#rebuild-btn {
+  width: 100%; padding: 7px; margin-top: 18px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover  { background: #253545; }
+#rebuild-btn:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 240px; top: 0; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>Particle Word</h1>
+
+  <textarea id="poem-text" rows="2" spellcheck="false">POEM</textarea>
+  <button id="apply-btn">Apply</button>
+
+  <div class="section-label">Glyph Particles</div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Font Size</span>
+      <span class="param-val" id="vFontPt">100 pt</span>
+    </div>
+    <input type="range" id="sFontPt" min="50" max="400" step="10" value="100">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Particle Size</span>
+      <span class="param-val" id="vCellPx">5 px</span>
+    </div>
+    <input type="range" id="sCellPx" min="1" max="20" step="1" value="5">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Particles</span>
+      <span class="param-val" id="vDensity">100%</span>
+    </div>
+    <input type="range" id="sDensity" min="1" max="100" step="1" value="100">
+    <div id="count-note">— particles</div>
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Particle Speed</span>
+      <span class="param-val" id="vPSpeed">100 px/s</span>
+    </div>
+    <input type="range" id="sPSpeed" min="10" max="600" step="10" value="100">
+  </div>
+
+  <div class="color-row">
+    <label>Particle Color</label>
+    <input type="color" id="sColor" value="#ffffff">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Shape</span>
+      <span class="param-val" id="vRoundness">Square</span>
+    </div>
+    <input type="range" id="sRoundness" min="0" max="100" step="1" value="0">
+  </div>
+
+  <div class="section-label">Flocking</div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Perception</span>
+      <span class="param-val" id="vPerception">30 px</span>
+    </div>
+    <input type="range" id="sPerception" min="5" max="120" step="1" value="30">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Separation</span>
+      <span class="param-val" id="vSeparation">1.5</span>
+    </div>
+    <input type="range" id="sSeparation" min="0" max="5" step="0.1" value="1.5">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Alignment</span>
+      <span class="param-val" id="vAlignment">1.0</span>
+    </div>
+    <input type="range" id="sAlignment" min="0" max="5" step="0.1" value="1.0">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Cohesion</span>
+      <span class="param-val" id="vCohesion">1.0</span>
+    </div>
+    <input type="range" id="sCohesion" min="0" max="5" step="0.1" value="1.0">
+  </div>
+
+  <div class="section-label">Letter Movement</div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Letter Speed</span>
+      <span class="param-val" id="vLSpeed">40 px/s</span>
+    </div>
+    <input type="range" id="sLSpeed" min="5" max="200" step="5" value="40">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Wander Radius</span>
+      <span class="param-val" id="vWander">100 px</span>
+    </div>
+    <input type="range" id="sWander" min="0" max="400" step="10" value="100">
+  </div>
+
+  <button id="rebuild-btn">Rebuild</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const dpr    = window.devicePixelRatio || 1;
+const W      = canvas.width  = Math.round((window.innerWidth  - 240) * dpr);
+const H      = canvas.height = Math.round( window.innerHeight        * dpr);
+canvas.style.width  = (window.innerWidth - 240) + 'px';
+canvas.style.height =  window.innerHeight        + 'px';
+
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+function getTextLines() {
+  return document.getElementById('poem-text').value
+    .split('\n')
+    .map(l => l.replace(/\r/g, ''))   // strip CR just in case
+    .filter(l => l.length > 0);
+}
+
+// ── Params ────────────────────────────────────────────────────────────────────
+const PARAMS = {
+  fontPt:        100,
+  cellPx:        5,
+  density:       1.0,
+  particleSpeed: 100,
+  letterSpeed:   40,
+  wanderRadius:  100,
+  roundness:     0,    // 0 = square, 1 = circle
+  color:         '#ffffff',
+  perception:    30,   // neighbour radius in CSS px
+  separation:    1.5,  // steer away from crowding
+  alignment:     1.0,  // match neighbour velocity
+  cohesion:      1.0,  // steer toward neighbour centre
+};
+
+let CELL, VMIN, VMAX;
+let letters = [];
+
+// ── Letter class ──────────────────────────────────────────────────────────────
+// Each letter owns:
+//   - A world position (cx, cy) — the letter centre, moved by word-level wander
+//   - A local pixel mask (letter rendered once, centred at origin in local space)
+//   - Internal particles in local coords that bounce off the mask boundary
+class Letter {
+  constructor(ch, cx, cy, fontStr) {
+    this.ch      = ch;
+    this.cx      = cx;   // world pos (canvas px)
+    this.cy      = cy;
+    this.homeX   = cx;
+    this.homeY   = cy;
+    this.fontStr = fontStr;
+
+    // Word-level wander: target the letter drifts toward
+    this._tx = cx;
+    this._ty = cy;
+
+    this.mask      = null;
+    this.maskW     = 0;
+    this.maskH     = 0;
+    this.allCells  = [];
+    this.particles = [];
+  }
+
+  // Build the alpha mask from a fresh offscreen canvas render.
+  // maskW/H are computed generously from fontPx so any glyph fits.
+  buildMask(fontPx) {
+    const pad    = Math.round(14 * dpr);
+    this.maskW   = Math.round(fontPx * 1.25) + pad * 2;
+    this.maskH   = Math.round(fontPx * 1.10) + pad * 2;
+    if (this.maskW % 2) this.maskW++;
+    if (this.maskH % 2) this.maskH++;
+
+    const off  = document.createElement('canvas');
+    off.width  = this.maskW;
+    off.height = this.maskH;
+    const octx = off.getContext('2d');
+    octx.font         = this.fontStr;
+    octx.textAlign    = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillStyle    = '#fff';
+    octx.fillText(this.ch, this.maskW / 2, this.maskH / 2);
+
+    const raw  = octx.getImageData(0, 0, this.maskW, this.maskH).data;
+    this.mask  = new Uint8Array(this.maskW * this.maskH);
+    for (let i = 0; i < this.maskW * this.maskH; i++) {
+      this.mask[i] = raw[i * 4 + 3] > 128 ? 1 : 0;
+    }
+
+    // Collect all valid cell centres in local coords (letter centred at 0,0).
+    // Local (lx, ly) → mask (lx + maskW/2, ly + maskH/2).
+    this.allCells = [];
+    const half = CELL / 2;
+    for (let ly = -this.maskH / 2 + half; ly < this.maskH / 2; ly += CELL) {
+      for (let lx = -this.maskW / 2 + half; lx < this.maskW / 2; lx += CELL) {
+        if (this._inside(lx, ly)) this.allCells.push({ x: lx, y: ly });
+      }
+    }
+  }
+
+  _inside(lx, ly) {
+    const xi = Math.round(lx + this.maskW / 2);
+    const yi = Math.round(ly + this.maskH / 2);
+    if (xi < 0 || xi >= this.maskW || yi < 0 || yi >= this.maskH) return false;
+    return this.mask[yi * this.maskW + xi] === 1;
+  }
+
+  buildParticles(density) {
+    const count = Math.max(1, Math.round(this.allCells.length * density));
+    let cells;
+    if (count >= this.allCells.length) {
+      cells = [...this.allCells];
+    } else {
+      // Partial Fisher-Yates shuffle to select `count` cells randomly
+      const idx = this.allCells.map((_, i) => i);
+      for (let i = 0; i < count; i++) {
+        const j = i + Math.floor(Math.random() * (idx.length - i));
+        [idx[i], idx[j]] = [idx[j], idx[i]];
+      }
+      cells = idx.slice(0, count).map(i => this.allCells[i]);
+    }
+
+    this.particles = cells.map(({ x, y }) => {
+      const speed = VMIN + Math.random() * (VMAX - VMIN);
+      const angle = Math.random() * Math.PI * 2;
+      return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+    });
+  }
+
+  // Step internal particles using Reynolds Boids flocking (separation, alignment,
+  // cohesion) plus wall avoidance. Hard-bounce is kept as a position fallback.
+  stepParticles(dt) {
+    const ps      = this.particles;
+    const n       = ps.length;
+    const perc    = PARAMS.perception * dpr;
+    const perc2   = perc * perc;
+    const sepR2   = (perc * 0.5) * (perc * 0.5);  // separation fires within half perception
+    const wallD   = CELL * 2.5;                    // wall-probe distance (canvas px)
+    const maxSpd  = VMAX;
+    const minSpd  = VMIN * 0.3;
+
+    for (let i = 0; i < n; i++) {
+      const pi = ps[i];
+
+      let sx = 0, sy = 0;          // separation accumulator
+      let ax = 0, ay = 0;          // alignment accumulator
+      let cx = 0, cy = 0;          // cohesion accumulator
+      let nc = 0;                  // neighbour count
+
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const pj = ps[j];
+        const dx = pj.x - pi.x,  dy = pj.y - pi.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > perc2) continue;
+
+        // Separation: push away, strongest when very close
+        if (d2 < sepR2 && d2 > 0) {
+          sx -= dx / d2;
+          sy -= dy / d2;
+        }
+        ax += pj.vx;  ay += pj.vy;
+        cx += pj.x;   cy += pj.y;
+        nc++;
+      }
+
+      let fx = 0, fy = 0;
+
+      if (nc > 0) {
+        // Separation: steer toward desired direction (away from crowd)
+        const sm = Math.hypot(sx, sy);
+        if (sm > 0) {
+          fx += (sx / sm * maxSpd - pi.vx) * PARAMS.separation;
+          fy += (sy / sm * maxSpd - pi.vy) * PARAMS.separation;
+        }
+
+        // Alignment: steer toward average neighbour heading
+        const am = Math.hypot(ax, ay) || 1;
+        fx += (ax / am * maxSpd - pi.vx) * PARAMS.alignment;
+        fy += (ay / am * maxSpd - pi.vy) * PARAMS.alignment;
+
+        // Cohesion: steer toward centre of mass of neighbours
+        const tcx = cx / nc - pi.x,  tcy = cy / nc - pi.y;
+        const tm  = Math.hypot(tcx, tcy) || 1;
+        fx += (tcx / tm * maxSpd - pi.vx) * PARAMS.cohesion;
+        fy += (tcy / tm * maxSpd - pi.vy) * PARAMS.cohesion;
+      }
+
+      // Wall avoidance: probe 8 directions; steer away from any outside the mask
+      for (let k = 0; k < 8; k++) {
+        const a  = k * Math.PI * 0.25;
+        const wx = pi.x + Math.cos(a) * wallD;
+        const wy = pi.y + Math.sin(a) * wallD;
+        if (!this._inside(wx, wy)) {
+          fx += (-Math.cos(a) * maxSpd - pi.vx) * 2.0;
+          fy += (-Math.sin(a) * maxSpd - pi.vy) * 2.0;
+        }
+      }
+
+      // Apply accumulated force as acceleration
+      pi.vx += fx * dt;
+      pi.vy += fy * dt;
+
+      // Speed clamping: stay within [minSpd, maxSpd]
+      const spd = Math.hypot(pi.vx, pi.vy);
+      if (spd > maxSpd) {
+        pi.vx = pi.vx / spd * maxSpd;
+        pi.vy = pi.vy / spd * maxSpd;
+      } else if (spd < minSpd && spd > 0) {
+        pi.vx = pi.vx / spd * minSpd;
+        pi.vy = pi.vy / spd * minSpd;
+      } else if (spd === 0) {
+        const a = Math.random() * Math.PI * 2;
+        pi.vx = Math.cos(a) * minSpd;
+        pi.vy = Math.sin(a) * minSpd;
+      }
+
+      // Move — hard boundary bounce as positional fallback
+      const nx = pi.x + pi.vx * dt;
+      const ny = pi.y + pi.vy * dt;
+      if      (this._inside(nx, ny))  { pi.x = nx; pi.y = ny; }
+      else if (this._inside(pi.x, ny)){ pi.y = ny; pi.vx = -pi.vx; }
+      else if (this._inside(nx, pi.y)){ pi.x = nx; pi.vy = -pi.vy; }
+      else                            { pi.vx = -pi.vx; pi.vy = -pi.vy; }
+    }
+  }
+
+  // Move this letter toward its wander target; bounce off canvas walls.
+  stepLetter(dt) {
+    const speed  = PARAMS.letterSpeed  * dpr;
+    const wander = PARAMS.wanderRadius * dpr;
+    const hw     = this.maskW / 2;
+    const hh     = this.maskH / 2;
+
+    const dx = this._tx - this.cx;
+    const dy = this._ty - this.cy;
+    const d  = Math.hypot(dx, dy);
+
+    if (d < speed * dt + 1) {
+      // Reached target — pick a new random one near home, clamped in canvas
+      this._tx = clamp(this.homeX + (Math.random() * 2 - 1) * wander, hw, W - hw);
+      this._ty = clamp(this.homeY + (Math.random() * 2 - 1) * wander, hh, H - hh);
+    } else {
+      this.cx += dx / d * speed * dt;
+      this.cy += dy / d * speed * dt;
+    }
+
+    // Hard clamp to canvas
+    this.cx = clamp(this.cx, hw, W - hw);
+    this.cy = clamp(this.cy, hh, H - hh);
+  }
+
+  draw(cell) {
+    const half = cell / 2;
+    ctx.save();
+    ctx.translate(this.cx, this.cy);
+
+    // Ghost outline shows the letter container
+    ctx.font         = this.fontStr;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle  = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth    = dpr;
+    ctx.strokeText(this.ch, 0, 0);
+
+    // Internal particles in local space
+    ctx.fillStyle = PARAMS.color;
+    const r = half * PARAMS.roundness;
+    if (r <= 0) {
+      // Pure square — fillRect is fastest
+      for (const p of this.particles) {
+        ctx.fillRect(p.x - half, p.y - half, cell, cell);
+      }
+    } else if (PARAMS.roundness >= 1) {
+      // Pure circle
+      for (const p of this.particles) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, half, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Rounded rectangle
+      for (const p of this.particles) {
+        ctx.beginPath();
+        ctx.roundRect(p.x - half, p.y - half, cell, cell, r);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
+// ── Letter-letter soft collision ──────────────────────────────────────────────
+// When two letters' centres are closer than their combined half-widths, push apart.
+function resolveCollisions() {
+  for (let i = 0; i < letters.length; i++) {
+    for (let j = i + 1; j < letters.length; j++) {
+      const a    = letters[i];
+      const b    = letters[j];
+      const dx   = b.cx - a.cx;
+      const dy   = b.cy - a.cy;
+      const dist = Math.hypot(dx, dy);
+      const min  = (a.maskW + b.maskW) * 0.28;  // ~visual half-widths combined
+      if (dist < min && dist > 0.01) {
+        const push = (min - dist) / 2;
+        a.cx -= dx / dist * push;
+        a.cy -= dy / dist * push;
+        b.cx += dx / dist * push;
+        b.cy += dy / dist * push;
+      }
+    }
+  }
+}
+
+// ── Build / rebuild ───────────────────────────────────────────────────────────
+function fullRebuild() {
+  const fontPx  = Math.round(PARAMS.fontPt * (4 / 3) * dpr);
+  CELL = Math.round(PARAMS.cellPx * dpr);
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+
+  const fontStr = `bold ${fontPx}px "Gill Sans", Georgia, serif`;
+
+  // Save current world positions so letters don't jump on param changes
+  const saved = letters.map(l => ({ cx: l.cx, cy: l.cy, tx: l._tx, ty: l._ty }));
+
+  // Measurement canvas
+  const tmp  = document.createElement('canvas');
+  tmp.width  = W;  tmp.height = H;
+  const tctx = tmp.getContext('2d');
+  tctx.font  = fontStr;
+
+  const lines      = getTextLines();
+  const lineHeight = Math.round(fontPx * 1.2);
+  const totalH     = lines.length * lineHeight;
+  const startY     = (H - totalH) / 2 + lineHeight / 2;
+
+  const newLetters = [];
+  let savedIdx = 0;
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    const cy   = startY + li * lineHeight;
+
+    // Measure each character's advance; use full-line width for centering
+    const advances    = [...line].map(ch => tctx.measureText(ch).width);
+    const totalWidth  = advances.reduce((a, b) => a + b, 0);
+    let x = (W - totalWidth) / 2;
+
+    for (let ci = 0; ci < line.length; ci++) {
+      const ch  = line[ci];
+      const adv = advances[ci];
+      const cx  = x + adv / 2;
+      x += adv;
+
+      if (ch === ' ') continue;   // spaces contribute advance width but no Letter
+
+      const letter = new Letter(ch, cx, cy, fontStr);
+
+      // Restore current position if one was saved for this slot
+      if (saved[savedIdx]) {
+        letter.cx  = saved[savedIdx].cx;
+        letter.cy  = saved[savedIdx].cy;
+        letter._tx = saved[savedIdx].tx;
+        letter._ty = saved[savedIdx].ty;
+      }
+      savedIdx++;
+
+      letter.buildMask(fontPx);
+      letter.buildParticles(PARAMS.density);
+      newLetters.push(letter);
+    }
+  }
+
+  letters = newLetters;
+  updateCountNote();
+}
+
+function rebuildParticles() {
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+  for (const l of letters) l.buildParticles(PARAMS.density);
+  updateCountNote();
+}
+
+function applyParticleSpeed() {
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+  for (const l of letters) {
+    for (const p of l.particles) {
+      const spd = Math.hypot(p.vx, p.vy) || 1;
+      const tgt = VMIN + Math.random() * (VMAX - VMIN);
+      p.vx = p.vx / spd * tgt;
+      p.vy = p.vy / spd * tgt;
+    }
+  }
+}
+
+function updateCountNote() {
+  const total = letters.reduce((s, l) => s + l.particles.length, 0);
+  document.getElementById('count-note').textContent =
+    `${total.toLocaleString()} particles total`;
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+let last = null;
+
+function loop(ts) {
+  if (last === null) last = ts;
+  const dt = Math.min((ts - last) / 1000, 0.05);
+  last = ts;
+
+  for (const l of letters) {
+    l.stepLetter(dt);
+    l.stepParticles(dt);
+  }
+  resolveCollisions();
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  for (const l of letters) l.draw(CELL);
+
+  requestAnimationFrame(loop);
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function wire(id, valId, fmt, onChange) {
+  const s = document.getElementById(id);
+  const l = document.getElementById(valId);
+  s.addEventListener('input', () => {
+    l.textContent = fmt(parseFloat(s.value));
+    onChange(parseFloat(s.value));
+  });
+}
+
+wire('sFontPt',  'vFontPt',  v => `${v} pt`,   v => { PARAMS.fontPt        = v; fullRebuild(); });
+wire('sCellPx',  'vCellPx',  v => `${v} px`,   v => { PARAMS.cellPx        = v; fullRebuild(); });
+wire('sDensity', 'vDensity', v => `${v}%`,      v => { PARAMS.density       = v / 100; rebuildParticles(); });
+wire('sPSpeed',  'vPSpeed',  v => `${v} px/s`,  v => { PARAMS.particleSpeed = v; applyParticleSpeed(); });
+wire('sPerception', 'vPerception', v => `${v} px`, v => { PARAMS.perception = v; });
+wire('sSeparation', 'vSeparation', v => v.toFixed(1), v => { PARAMS.separation = v; });
+wire('sAlignment',  'vAlignment',  v => v.toFixed(1), v => { PARAMS.alignment  = v; });
+wire('sCohesion',   'vCohesion',   v => v.toFixed(1), v => { PARAMS.cohesion   = v; });
+
+wire('sLSpeed',  'vLSpeed',  v => `${v} px/s`,  v => { PARAMS.letterSpeed   = v; });
+wire('sWander',  'vWander',  v => `${v} px`,    v => { PARAMS.wanderRadius  = v; });
+
+document.getElementById('apply-btn').addEventListener('click', fullRebuild);
+document.getElementById('sColor').addEventListener('input', e => { PARAMS.color = e.target.value; });
+document.getElementById('rebuild-btn').addEventListener('click', fullRebuild);
+
+wire('sRoundness', 'vRoundness', v => {
+  if (v <= 0)   return 'Square';
+  if (v >= 100) return 'Circle';
+  return `${v}%`;
+}, v => { PARAMS.roundness = v / 100; });
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+fullRebuild();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

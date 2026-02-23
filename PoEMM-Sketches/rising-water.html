@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Rising Water — PoEMM Sketch</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+.sec-hd {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #555; margin: 12px 0 5px; border-top: 1px solid #1e1e1e;
+  padding-top: 8px; cursor: pointer; user-select: none;
+}
+.sec-hd::after { content: ' ▾'; float: right; }
+.sec-hd.closed::after { content: ' ▸'; }
+.sec-bd.hidden { display: none; }
+
+#poem-input {
+  width: 100%; height: 110px; background: #181818; color: #ddd;
+  border: 1px solid #2a2a2a; font-size: 10px; padding: 5px;
+  resize: none; font-family: "Gill Sans", Georgia, serif; line-height: 1.5;
+}
+#poem-input:focus { outline: none; border-color: #336; }
+
+.param-row { margin: 5px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.param-name { font-size: 10px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; min-width: 38px; text-align: right; }
+input[type=range] {
+  width: 100%; height: 12px; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track { height: 3px; background: #2a2a2a; border-radius: 2px; }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+.color-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.color-row label { font-size: 10px; color: #888; flex: 1; }
+.color-row input[type=color] {
+  width: 34px; height: 20px; padding: 1px 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
+}
+#rebuild-btn {
+  width: 100%; padding: 7px; margin-top: 14px; margin-bottom: 2px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover  { background: #253545; }
+#rebuild-btn:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 240px; top: 0; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <textarea id="poem-input">People were going by, black mud on their pants
+The orange-turning sky was disappearing fast
+Jackie, Robbie and me sat at a tumbling down table
+smoking jackfruit and eating cigarettes
+watching the unending line of clowns, dictators and friends
+we had brought billy jean's big bad boat but it proved too hard to handle
+so we had ditched it way back in the dukes black moat and went on with only a candle
+I know I'm supposed to meet somebody but everybody else is here instead
+And nobody else can hear this dream calling to me in my head
+I know I'm supposed to meet somebody but everybody else is here instead And nobody else can know of this dream walking 'round inside my head
+we got up from the table as well as we were able
+and followed five ballet dancers down into the valley of the lost</textarea>
+  <button id="rebuild-btn">Rebuild</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+const P = {
+  fontSize:       48,
+  lineSpacing:    0.9,
+  flickerFreqMin: 0.08,
+  flickerFreqMax: 0.30,
+  flickerMin:     0.20,
+  flickerMax:     1.00,
+  textColor:      '#ffffff',
+  bgColor:        '#000000',
+};
+
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+const makeFont = px => `bold ${px}px "Gill Sans", "GillSans-Bold", Georgia, serif`;
+
+// ── Scene setup ───────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let dpr, W, H, lines = [];
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W   = Math.round((window.innerWidth - 240) * dpr);
+  H   = Math.round(window.innerHeight * dpr);
+  canvas.width        = W;
+  canvas.height       = H;
+  canvas.style.width  = (window.innerWidth - 240) + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+}
+
+// Each line: { text, glyphs: [{ch, x, y, advance}], phase, rndFac }
+function build() {
+  resize();
+  lines = [];
+  const fontPx  = Math.round(P.fontSize * dpr);
+  ctx.font = makeFont(fontPx);
+
+  const rawLines = document.getElementById('poem-input').value
+    .split('\n').filter(l => l.trim());
+
+  const centerX  = W / 2;
+  const lineH    = fontPx * P.lineSpacing;
+  const totalH   = rawLines.length * lineH;
+  const startY   = (H - totalH) / 2 + lineH / 2;
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const text  = rawLines[i];
+    const lineY = startY + i * lineH;
+    const glyphs = [];
+    let totalW = 0;
+    for (const ch of text) {
+      const adv = ctx.measureText(ch).width;
+      glyphs.push({ ch, advance: adv, x: 0, y: lineY, opacity: Math.random() });
+      totalW += adv;
+    }
+    let x = centerX - totalW / 2;
+    for (const g of glyphs) {
+      g.x  = x + g.advance / 2;
+      x   += g.advance;
+    }
+    lines.push({ glyphs, phase: Math.random() * Math.PI * 2, rndFac: Math.random() });
+  }
+}
+
+// ── Update + render ───────────────────────────────────────────────────────────
+
+let lastTs = null;
+
+function loop(ts) {
+  if (lastTs === null) lastTs = ts;
+  const dt = clamp((ts - lastTs) / 1000, 0, 0.05);
+  lastTs = ts;
+
+  // Update: advance each line's flicker phase, set glyph opacities
+  for (const line of lines) {
+    const freq  = P.flickerFreqMin + line.rndFac * Math.max(0, P.flickerFreqMax - P.flickerFreqMin);
+    line.phase += freq * Math.PI * 2 * dt;
+    const t     = 0.5 + 0.5 * Math.sin(line.phase);
+    const op    = P.flickerMin + (P.flickerMax - P.flickerMin) * t;
+    for (const g of line.glyphs) g.opacity = op;
+  }
+
+  // Render
+  const fontPx = Math.round(P.fontSize * dpr);
+  ctx.fillStyle = P.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  ctx.font         = makeFont(fontPx);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign    = 'center';
+
+  for (const line of lines) {
+    for (const g of line.glyphs) {
+      if (g.ch.trim() === '' || g.opacity < 0.005) continue;
+      ctx.globalAlpha = clamp(g.opacity, 0, 1);
+      ctx.fillStyle   = P.textColor;
+      ctx.fillText(g.ch, g.x, g.y);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  requestAnimationFrame(loop);
+}
+
+// ── Panel UI ──────────────────────────────────────────────────────────────────
+
+function buildUI() {
+  const panel  = document.getElementById('panel');
+  const rebBtn = document.getElementById('rebuild-btn');
+
+  function section(title, open = true) {
+    const hd = document.createElement('div');
+    hd.className = 'sec-hd' + (open ? '' : ' closed');
+    hd.textContent = title;
+    const bd = document.createElement('div');
+    bd.className = 'sec-bd' + (open ? '' : ' hidden');
+    hd.addEventListener('click', () => {
+      const closing = !bd.classList.contains('hidden');
+      bd.classList.toggle('hidden', closing);
+      hd.classList.toggle('closed', closing);
+    });
+    panel.insertBefore(hd, rebBtn);
+    panel.insertBefore(bd, rebBtn);
+    return bd;
+  }
+
+  function slider(bd, key, label, min, max, step, rebuild = false) {
+    const row = document.createElement('div'); row.className = 'param-row';
+    const hdr = document.createElement('div'); hdr.className = 'param-header';
+    const nm  = document.createElement('span'); nm.className = 'param-name'; nm.textContent = label;
+    const vl  = document.createElement('span'); vl.className = 'param-val'; vl.id = 'pv-' + key;
+    vl.textContent = step < 1 ? P[key].toFixed(2) : P[key].toFixed(0);
+    hdr.appendChild(nm); hdr.appendChild(vl);
+    const sl = document.createElement('input');
+    sl.type = 'range'; sl.min = min; sl.max = max; sl.step = step; sl.value = P[key];
+    sl.addEventListener('input', () => {
+      P[key] = parseFloat(sl.value);
+      vl.textContent = step < 1 ? P[key].toFixed(2) : P[key].toFixed(0);
+      if (rebuild) build();
+    });
+    row.appendChild(hdr); row.appendChild(sl);
+    bd.appendChild(row);
+  }
+
+  function colorPicker(bd, key, label) {
+    const row = document.createElement('div'); row.className = 'color-row';
+    const lbl = document.createElement('label'); lbl.textContent = label;
+    const inp = document.createElement('input'); inp.type = 'color'; inp.value = P[key];
+    inp.addEventListener('input', () => { P[key] = inp.value; });
+    row.appendChild(lbl); row.appendChild(inp);
+    bd.appendChild(row);
+  }
+
+  const fontSec  = section('Font');
+  slider(fontSec, 'fontSize',    'size',    10,  120, 1,    true);
+  slider(fontSec, 'lineSpacing', 'spacing', 0.2, 2.0, 0.05, true);
+  colorPicker(fontSec, 'textColor', 'text color');
+  colorPicker(fontSec, 'bgColor',   'background');
+
+  const flkSec = section('Flicker');
+  slider(flkSec, 'flickerFreqMin', 'freq min (Hz)', 0.01, 1.0, 0.01);
+  slider(flkSec, 'flickerFreqMax', 'freq max (Hz)', 0.01, 1.0, 0.01);
+  slider(flkSec, 'flickerMin',     'opacity min',   0.0,  1.0, 0.01);
+  slider(flkSec, 'flickerMax',     'opacity max',   0.0,  1.0, 0.01);
+
+  rebBtn.addEventListener('click', build);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+buildUI();
+build();
+window.addEventListener('resize', build);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

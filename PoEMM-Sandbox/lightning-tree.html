@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Lightning Tree — Concert at the End of the World</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+#panel h3, .sec-hd {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #555; margin: 12px 0 5px;
+  border-top: 1px solid #1e1e1e; padding-top: 8px;
+  cursor: pointer; user-select: none;
+}
+#panel h3:first-child, .sec-hd:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.sec-hd::after       { content: ' ▾'; float: right; }
+.sec-hd.closed::after { content: ' ▸'; }
+.sec-bd.hidden { display: none; }
+
+#poem-input {
+  width: 100%; height: 76px; background: #181818; color: #ddd;
+  border: 1px solid #2a2a2a; font-size: 11px; padding: 5px;
+  resize: none; font-family: "Gill Sans", Georgia, serif; line-height: 1.5;
+}
+#poem-input:focus { outline: none; border-color: #336; }
+
+.param-row { margin: 5px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 2px; }
+.param-name { font-size: 10px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; min-width: 38px;
+              text-align: right; }
+
+input[type=range] {
+  width: 100%; height: 12px; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+.color-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.color-row label { font-size: 10px; color: #888; flex: 1; }
+.color-row input[type=color] {
+  width: 34px; height: 20px; padding: 1px 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
+}
+
+#rebuild-btn {
+  width: 100%; padding: 7px; margin-top: 14px; margin-bottom: 2px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover  { background: #253545; }
+#rebuild-btn:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 240px; top: 0; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h3 class="sec-hd">Text</h3>
+  <div class="sec-bd">
+    <textarea id="poem-input">People were going by, black mud on their pants
+The orange-turning sky was disappearing fast
+Jackie, Robbie and me sat at a tumbling down table
+smoking jackfruit and eating cigarettes
+watching the unending line of clowns, dictators and friends
+---
+we had brought billy jean's big bad boat but it proved too hard to handle
+so we had ditched it way back in the dukes black moat and went on with only a candle
+I know I'm supposed to meet somebody but everybody else is here instead
+And nobody else can hear this dream calling to me in my head
+I know I'm supposed to meet somebody but everybody else is here instead And nobody else can know of this dream
+we got up from the table as well as we were able
+and followed five ballet dancers down into the valley of the lost</textarea>
+    <p style="font-size:10px;color:#555;margin-top:4px;">First 5 lines = trunk. Separate with <code style="color:#666">---</code>. Next 7 = branches.</p>
+  </div>
+
+  <h3 class="sec-hd">Trunk</h3>
+  <div class="sec-bd" id="trunk-sec"></div>
+
+  <h3 class="sec-hd">Branches</h3>
+  <div class="sec-bd" id="branch-sec"></div>
+
+  <h3 class="sec-hd">Colours</h3>
+  <div class="sec-bd" id="color-sec"></div>
+
+  <button id="rebuild-btn">Rebuild</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+// ── Parameters ────────────────────────────────────────────────────────────────
+const P = {
+  trunkFontSize:  12,
+  trunkColGap:    11,
+  trunkGlyphStep: 10,
+  trunkGlow:       9,
+  branchFontSize: 11,
+  branchGlyphStep: 9,
+  branchGlow:     11,
+  branchFade:     0.60,
+  trunkColor:     '#c8a050',
+  trunkGlowColor: '#d49628',
+  branchColor:    '#90c4e0',
+  branchGlowColor:'#64b4ff',
+  bgColor:        '#04040e',
+};
+
+// ── Parameter registry ────────────────────────────────────────────────────────
+const TRUNK_PARAMS = [
+  { key: 'trunkFontSize',   label: 'font size',   min: 6,  max: 24,  step: 1    },
+  { key: 'trunkColGap',     label: 'col gap',      min: 4,  max: 30,  step: 1    },
+  { key: 'trunkGlyphStep',  label: 'glyph step',   min: 4,  max: 24,  step: 1    },
+  { key: 'trunkGlow',       label: 'glow blur',    min: 0,  max: 30,  step: 1    },
+];
+const BRANCH_PARAMS = [
+  { key: 'branchFontSize',  label: 'font size',   min: 6,  max: 24,  step: 1    },
+  { key: 'branchGlyphStep', label: 'glyph step',  min: 4,  max: 24,  step: 1    },
+  { key: 'branchGlow',      label: 'glow blur',   min: 0,  max: 30,  step: 1    },
+  { key: 'branchFade',      label: 'tip fade',    min: 0,  max: 1,   step: 0.05 },
+];
+
+// ── Canvas / resize ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H, DPR;
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W   = window.innerWidth - 240;
+  H   = window.innerHeight;
+  canvas.width        = Math.round(W * DPR);
+  canvas.height       = Math.round(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  draw();
+}
+
+// ── Parse poem text into trunk lines + branch lines ───────────────────────────
+function parseText() {
+  const raw  = document.getElementById('poem-input').value;
+  const parts = raw.split(/^---$/m);
+  const trunkLines  = (parts[0] || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const branchLines = (parts[1] || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return { trunkLines, branchLines };
+}
+
+// ── Draw ──────────────────────────────────────────────────────────────────────
+function draw() {
+  const { trunkLines, branchLines } = parseText();
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  // background
+  ctx.fillStyle = P.bgColor;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  const cx   = W / 2;
+  const tBot = H * 0.86;
+  const tTop = H * 0.20;
+  const tLen = tBot - tTop;
+
+  // ── TRUNK ─────────────────────────────────────────────────────────────────
+  const numCols = trunkLines.length;
+  const colSpan = (numCols - 1) * P.trunkColGap;
+  const col0    = cx - colSpan / 2;
+
+  ctx.font        = `${P.trunkFontSize}px 'Courier New', monospace`;
+  ctx.fillStyle   = P.trunkColor;
+  ctx.shadowColor = P.trunkGlowColor;
+  ctx.shadowBlur  = P.trunkGlow;
+
+  for (let c = 0; c < numCols; c++) {
+    const x    = col0 + c * P.trunkColGap;
+    const line = trunkLines[c];
+    for (let i = 0; i < line.length; i++) {
+      const y = tBot - i * P.trunkGlyphStep;
+      if (y < tTop) break;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(line[i], 0, 0);
+      ctx.restore();
+    }
+  }
+
+  // ── BRANCHES ──────────────────────────────────────────────────────────────
+  // Default branch geometry: alternating right/left, angles and lengths spread
+  // across the trunk height. Extra branches beyond defaults just stack below.
+  // Branches distributed from 50% up the trunk to near the top.
+  // First entry = lowest branch (frac 0.50), rest ascend from there.
+  const branchDefs = [
+    { frac: 0.50, dir: +1, deg: 30, len: 280 },
+    { frac: 0.57, dir: -1, deg: 36, len: 255 },
+    { frac: 0.63, dir: +1, deg: 43, len: 228 },
+    { frac: 0.69, dir: -1, deg: 50, len: 202 },
+    { frac: 0.75, dir: +1, deg: 55, len: 178 },
+    { frac: 0.81, dir: -1, deg: 49, len: 158 },
+    { frac: 0.87, dir: +1, deg: 63, len: 140 },
+  ];
+
+  ctx.font        = `${P.branchFontSize}px 'Courier New', monospace`;
+  ctx.fillStyle   = P.branchColor;
+  ctx.shadowColor = P.branchGlowColor;
+  ctx.shadowBlur  = P.branchGlow;
+
+  branchLines.forEach((text, idx) => {
+    const def = branchDefs[idx] || branchDefs[branchDefs.length - 1];
+    const ay  = tBot - def.frac * tLen;
+    const ax  = cx + def.dir * (P.trunkColGap * 2.2);
+
+    const rad = def.deg * Math.PI / 180;
+    const dx  = def.dir * Math.cos(rad);
+    const dy  = -Math.sin(rad);
+
+    // Normalize angle to ±90° so glyphs are never upside-down
+    let pAngle = Math.atan2(dy, dx);
+    if (pAngle < -Math.PI / 2) pAngle += Math.PI;
+    if (pAngle >  Math.PI / 2) pAngle -= Math.PI;
+
+    // Left branches: tip → trunk (text[0] at tip) so text reads left-to-right
+    // Right branches: trunk → tip (original direction)
+    for (let i = 0; i < text.length; i++) {
+      const dist = def.dir === -1
+        ? def.len - i * P.branchGlyphStep   // left: start at tip
+        : i * P.branchGlyphStep;            // right: start at trunk
+      if (dist < 0 || dist > def.len) break;
+      ctx.globalAlpha = 1 - (dist / def.len) * P.branchFade;
+      ctx.save();
+      ctx.translate(ax + dx * dist, ay + dy * dist);
+      ctx.rotate(pAngle);
+      ctx.fillText(text[i], 0, 0);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  });
+
+  ctx.shadowBlur = 0;
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function fmtVal(p) {
+  return p.step < 1 ? P[p.key].toFixed(2) : P[p.key].toFixed(0);
+}
+
+function makeSlider(p) {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+  const hdr = document.createElement('div');
+  hdr.className = 'param-header';
+  const nm = document.createElement('span');
+  nm.className = 'param-name'; nm.textContent = p.label;
+  const vl = document.createElement('span');
+  vl.className = 'param-val'; vl.id = 'pv-' + p.key; vl.textContent = fmtVal(p);
+  hdr.appendChild(nm); hdr.appendChild(vl);
+  const sl = document.createElement('input');
+  sl.type = 'range'; sl.min = p.min; sl.max = p.max; sl.step = p.step; sl.value = P[p.key];
+  sl.addEventListener('input', () => {
+    P[p.key] = parseFloat(sl.value);
+    document.getElementById('pv-' + p.key).textContent = fmtVal(p);
+    draw();
+  });
+  row.appendChild(hdr); row.appendChild(sl);
+  return row;
+}
+
+function makeColorPicker(key, label) {
+  const row = document.createElement('div');
+  row.className = 'color-row';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  const inp = document.createElement('input');
+  inp.type = 'color'; inp.value = P[key];
+  inp.addEventListener('input', () => { P[key] = inp.value; draw(); });
+  row.appendChild(lbl); row.appendChild(inp);
+  return row;
+}
+
+function makeSection(hd) {
+  hd.addEventListener('click', () => {
+    const bd = hd.nextElementSibling;
+    const closing = !bd.classList.contains('hidden');
+    bd.classList.toggle('hidden', closing);
+    hd.classList.toggle('closed', closing);
+  });
+}
+
+// ── Build UI ──────────────────────────────────────────────────────────────────
+function buildUI() {
+  // Wire collapsible sections
+  document.querySelectorAll('.sec-hd').forEach(makeSection);
+
+  // Trunk sliders
+  const trunkSec = document.getElementById('trunk-sec');
+  TRUNK_PARAMS.forEach(p => trunkSec.appendChild(makeSlider(p)));
+
+  // Branch sliders
+  const branchSec = document.getElementById('branch-sec');
+  BRANCH_PARAMS.forEach(p => branchSec.appendChild(makeSlider(p)));
+
+  // Colour pickers
+  const colorSec = document.getElementById('color-sec');
+  colorSec.appendChild(makeColorPicker('bgColor',        'Background'));
+  colorSec.appendChild(makeColorPicker('trunkColor',     'Trunk text'));
+  colorSec.appendChild(makeColorPicker('trunkGlowColor', 'Trunk glow'));
+  colorSec.appendChild(makeColorPicker('branchColor',    'Branch text'));
+  colorSec.appendChild(makeColorPicker('branchGlowColor','Branch glow'));
+
+  // Text textarea + rebuild
+  document.getElementById('poem-input').addEventListener('blur', draw);
+  document.getElementById('rebuild-btn').addEventListener('click', draw);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+buildUI();
+window.addEventListener('resize', resize);
+resize();
+</script>
+</body>
+</html>

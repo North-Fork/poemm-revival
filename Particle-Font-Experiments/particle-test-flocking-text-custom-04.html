@@ -79,7 +79,9 @@ canvas { position: fixed; left: 240px; top: 0; display: block; }
 <div id="panel">
   <h1>Particle Word</h1>
 
-  <textarea id="poem-text" rows="2" spellcheck="false">POEM</textarea>
+  <textarea id="poem-text" rows="3" spellcheck="false">Mahalo
+nui loa!
+Mich!</textarea>
   <button id="apply-btn">Apply</button>
 
   <div class="section-label">Glyph Particles</div>
@@ -125,9 +127,9 @@ canvas { position: fixed; left: 240px; top: 0; display: block; }
   <div class="param-row">
     <div class="param-header">
       <span class="param-name">Shape</span>
-      <span class="param-val" id="vRoundness">Square</span>
+      <span class="param-val" id="vRoundness">62%</span>
     </div>
-    <input type="range" id="sRoundness" min="0" max="100" step="1" value="0">
+    <input type="range" id="sRoundness" min="0" max="100" step="1" value="62">
   </div>
 
   <div class="section-label">Flocking</div>
@@ -135,33 +137,33 @@ canvas { position: fixed; left: 240px; top: 0; display: block; }
   <div class="param-row">
     <div class="param-header">
       <span class="param-name">Perception</span>
-      <span class="param-val" id="vPerception">30 px</span>
+      <span class="param-val" id="vPerception">84 px</span>
     </div>
-    <input type="range" id="sPerception" min="5" max="120" step="1" value="30">
+    <input type="range" id="sPerception" min="5" max="120" step="1" value="84">
   </div>
 
   <div class="param-row">
     <div class="param-header">
       <span class="param-name">Separation</span>
-      <span class="param-val" id="vSeparation">1.5</span>
+      <span class="param-val" id="vSeparation">4.4</span>
     </div>
-    <input type="range" id="sSeparation" min="0" max="5" step="0.1" value="1.5">
+    <input type="range" id="sSeparation" min="0" max="5" step="0.1" value="4.4">
   </div>
 
   <div class="param-row">
     <div class="param-header">
       <span class="param-name">Alignment</span>
-      <span class="param-val" id="vAlignment">1.0</span>
+      <span class="param-val" id="vAlignment">4.2</span>
     </div>
-    <input type="range" id="sAlignment" min="0" max="5" step="0.1" value="1.0">
+    <input type="range" id="sAlignment" min="0" max="5" step="0.1" value="4.2">
   </div>
 
   <div class="param-row">
     <div class="param-header">
       <span class="param-name">Cohesion</span>
-      <span class="param-val" id="vCohesion">1.0</span>
+      <span class="param-val" id="vCohesion">0.0</span>
     </div>
-    <input type="range" id="sCohesion" min="0" max="5" step="0.1" value="1.0">
+    <input type="range" id="sCohesion" min="0" max="5" step="0.1" value="0">
   </div>
 
   <div class="section-label">Letter Movement</div>
@@ -171,7 +173,7 @@ canvas { position: fixed; left: 240px; top: 0; display: block; }
       <span class="param-name">Letter Speed</span>
       <span class="param-val" id="vLSpeed">40 px/s</span>
     </div>
-    <input type="range" id="sLSpeed" min="5" max="200" step="5" value="40">
+    <input type="range" id="sLSpeed" min="0" max="200" step="5" value="0">
   </div>
 
   <div class="param-row">
@@ -179,7 +181,7 @@ canvas { position: fixed; left: 240px; top: 0; display: block; }
       <span class="param-name">Wander Radius</span>
       <span class="param-val" id="vWander">100 px</span>
     </div>
-    <input type="range" id="sWander" min="0" max="400" step="10" value="100">
+    <input type="range" id="sWander" min="0" max="400" step="10" value="0">
   </div>
 
   <button id="rebuild-btn">Rebuild</button>
@@ -214,14 +216,14 @@ const PARAMS = {
   cellPx:        5,
   density:       1.0,
   particleSpeed: 100,
-  letterSpeed:   40,
-  wanderRadius:  100,
-  roundness:     0,    // 0 = square, 1 = circle
+  letterSpeed:   0,
+  wanderRadius:  0,
+  roundness:     0.62, // 0 = square, 1 = circle
   color:         '#ffffff',
-  perception:    30,   // neighbour radius in CSS px
-  separation:    1.5,  // steer away from crowding
-  alignment:     1.0,  // match neighbour velocity
-  cohesion:      1.0,  // steer toward neighbour centre
+  perception:    84,   // neighbour radius in CSS px
+  separation:    4.4,  // steer away from crowding
+  alignment:     4.2,  // match neighbour velocity
+  cohesion:      0,    // steer toward neighbour centre
 };
 
 let CELL, VMIN, VMAX;
@@ -244,6 +246,8 @@ class Letter {
     // Word-level wander: target the letter drifts toward
     this._tx = cx;
     this._ty = cy;
+    this.isDragged = false;
+    this.wordIndex = 0;
 
     this.mask      = null;
     this.maskW     = 0;
@@ -417,6 +421,7 @@ class Letter {
 
   // Move this letter toward its wander target; bounce off canvas walls.
   stepLetter(dt) {
+    if (this.isDragged) return;
     const speed  = PARAMS.letterSpeed  * dpr;
     const wander = PARAMS.wanderRadius * dpr;
     const hw     = this.maskW / 2;
@@ -527,7 +532,8 @@ function fullRebuild() {
   const startY     = (H - totalH) / 2 + lineHeight / 2;
 
   const newLetters = [];
-  let savedIdx = 0;
+  let savedIdx  = 0;
+  let wordIndex = 0;
 
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
@@ -537,6 +543,7 @@ function fullRebuild() {
     const advances    = [...line].map(ch => tctx.measureText(ch).width);
     const totalWidth  = advances.reduce((a, b) => a + b, 0);
     let x = (W - totalWidth) / 2;
+    let inWord = false;
 
     for (let ci = 0; ci < line.length; ci++) {
       const ch  = line[ci];
@@ -544,9 +551,14 @@ function fullRebuild() {
       const cx  = x + adv / 2;
       x += adv;
 
-      if (ch === ' ') continue;   // spaces contribute advance width but no Letter
+      if (ch === ' ') {
+        if (inWord) { wordIndex++; inWord = false; }
+        continue;   // spaces contribute advance width but no Letter
+      }
+      inWord = true;
 
       const letter = new Letter(ch, cx, cy, fontStr);
+      letter.wordIndex = wordIndex;
 
       // Restore current position if one was saved for this slot
       if (saved[savedIdx]) {
@@ -561,6 +573,7 @@ function fullRebuild() {
       letter.buildParticles(PARAMS.density);
       newLetters.push(letter);
     }
+    if (inWord) wordIndex++;  // end of line ends the current word
   }
 
   letters = newLetters;
@@ -646,6 +659,76 @@ wire('sRoundness', 'vRoundness', v => {
   if (v >= 100) return 'Circle';
   return `${v}%`;
 }, v => { PARAMS.roundness = v / 100; });
+
+// ── Drag to move glyphs (Alt = grab whole word) ───────────────────────────────
+// dragGroup: [{ letter, offX, offY }, ...]
+let dragGroup = [];
+
+function canvasPt(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left)  * dpr,
+    y: (e.clientY - rect.top)   * dpr,
+  };
+}
+
+function hitTest(x, y) {
+  for (let i = letters.length - 1; i >= 0; i--) {
+    const l = letters[i];
+    if (Math.abs(x - l.cx) < l.maskW / 2 &&
+        Math.abs(y - l.cy) < l.maskH / 2) return l;
+  }
+  return null;
+}
+
+function releaseDragGroup() {
+  for (const d of dragGroup) {
+    d.letter.homeX   = d.letter.cx;
+    d.letter.homeY   = d.letter.cy;
+    d.letter._tx     = d.letter.cx;
+    d.letter._ty     = d.letter.cy;
+    d.letter.isDragged = false;
+  }
+  dragGroup = [];
+  canvas.style.cursor = 'default';
+}
+
+canvas.style.cursor = 'default';
+
+canvas.addEventListener('pointerdown', e => {
+  const { x, y } = canvasPt(e);
+  const hit = hitTest(x, y);
+  if (!hit) return;
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+
+  const targets = e.altKey
+    ? letters.filter(l => l.wordIndex === hit.wordIndex)
+    : [hit];
+
+  dragGroup = targets.map(l => ({ letter: l, offX: x - l.cx, offY: y - l.cy }));
+  dragGroup.forEach(d => d.letter.isDragged = true);
+  canvas.style.cursor = 'grabbing';
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (dragGroup.length) {
+    e.preventDefault();
+    const { x, y } = canvasPt(e);
+    for (const d of dragGroup) {
+      d.letter.cx  = x - d.offX;
+      d.letter.cy  = y - d.offY;
+      d.letter._tx = d.letter.cx;
+      d.letter._ty = d.letter.cy;
+    }
+  } else {
+    const { x, y } = canvasPt(e);
+    canvas.style.cursor = hitTest(x, y) ? 'grab' : 'default';
+  }
+});
+
+canvas.addEventListener('pointerup',     () => releaseDragGroup());
+canvas.addEventListener('pointercancel', () => releaseDragGroup());
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 fullRebuild();

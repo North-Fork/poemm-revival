@@ -399,6 +399,8 @@ class Letter {
     for (let i = 0; i < this.maskW * this.maskH; i++) {
       this.mask[i] = raw[i * 4 + 3] > 128 ? 1 : 0;
     }
+    // Keep the offscreen canvas for clean compositing in the crystallisation transition
+    this.solidCanvas = off;
 
     // Collect all valid cell centres in local coords (letter centred at 0,0).
     // Local (lx, ly) → mask (lx + maskW/2, ly + maskH/2).
@@ -440,21 +442,23 @@ class Letter {
     this.particles = cells.map(({ x, y }) => {
       const speed = VMIN + Math.random() * (VMAX - VMIN);
       const angle = Math.random() * Math.PI * 2;
-      return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+      return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, gx: x, gy: y };
     });
   }
 
   // Step internal particles using Reynolds Boids flocking (separation, alignment,
   // cohesion) plus wall avoidance. Hard-bounce is kept as a position fallback.
   stepParticles(dt) {
-    const ps      = this.particles;
-    const n       = ps.length;
-    const perc    = PARAMS.perception * dpr;
-    const perc2   = perc * perc;
-    const sepR2   = (perc * 0.5) * (perc * 0.5);  // separation fires within half perception
-    const wallD   = CELL * 2.5;                    // wall-probe distance (canvas px)
-    const maxSpd  = VMAX;
-    const minSpd  = VMIN * 0.3;
+    const ps        = this.particles;
+    const n         = ps.length;
+    const perc      = PARAMS.perception * dpr;
+    const perc2     = perc * perc;
+    const sepR2     = (perc * 0.5) * (perc * 0.5);  // separation fires within half perception
+    const wallD     = CELL * 2.5;                    // wall-probe distance (canvas px)
+    const maxSpd    = VMAX;
+    const minSpd    = VMIN * 0.3;
+    // solidifyT: 0 = pure flocking (cellPx≥6), 1 = fully crystallised (cellPx≤2)
+    const solidifyT = Math.min(1, Math.max(0, (6 - PARAMS.cellPx) / 4));
 
     for (let i = 0; i < n; i++) {
       const pi = ps[i];
@@ -503,6 +507,14 @@ class Letter {
         fy += (tcy / tm * maxSpd - pi.vy) * PARAMS.cohesion;
       }
 
+      // Crystallisation: scale flocking down and snap toward birth grid position
+      if (solidifyT > 0) {
+        fx *= (1 - solidifyT);
+        fy *= (1 - solidifyT);
+        fx += (pi.gx - pi.x) * solidifyT * 20;
+        fy += (pi.gy - pi.y) * solidifyT * 20;
+      }
+
       // Wall avoidance: probe 8 directions; steer away from any outside the mask
       // Weakened by unruliness — at 1.0, no wall steering at all
       const wallStrength = 2.0 * (1 - PARAMS.unruliness);
@@ -522,18 +534,20 @@ class Letter {
       pi.vx += fx * dt;
       pi.vy += fy * dt;
 
-      // Speed clamping: stay within [minSpd, maxSpd]
+      // Speed clamping: scale limits toward zero as solidifyT rises so particles can settle
+      const effMaxSpd = maxSpd * Math.max(0.02, 1 - solidifyT * 0.98);
+      const effMinSpd = minSpd * (1 - solidifyT);
       const spd = Math.hypot(pi.vx, pi.vy);
-      if (spd > maxSpd) {
-        pi.vx = pi.vx / spd * maxSpd;
-        pi.vy = pi.vy / spd * maxSpd;
-      } else if (spd < minSpd && spd > 0) {
-        pi.vx = pi.vx / spd * minSpd;
-        pi.vy = pi.vy / spd * minSpd;
-      } else if (spd === 0) {
+      if (spd > effMaxSpd) {
+        pi.vx = pi.vx / spd * effMaxSpd;
+        pi.vy = pi.vy / spd * effMaxSpd;
+      } else if (effMinSpd > 0 && spd < effMinSpd && spd > 0) {
+        pi.vx = pi.vx / spd * effMinSpd;
+        pi.vy = pi.vy / spd * effMinSpd;
+      } else if (spd === 0 && effMinSpd > 0) {
         const a = Math.random() * Math.PI * 2;
-        pi.vx = Math.cos(a) * minSpd;
-        pi.vy = Math.sin(a) * minSpd;
+        pi.vx = Math.cos(a) * effMinSpd;
+        pi.vy = Math.sin(a) * effMinSpd;
       }
 
       // Move
@@ -612,30 +626,21 @@ class Letter {
       ctx.fillStyle = PARAMS.color;
       ctx.fillText(this.ch, 0, 0);
     } else {
-      // Ghost outline + particles
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-      ctx.lineWidth   = dpr;
-      ctx.strokeText(this.ch, 0, 0);
-
       ctx.fillStyle = PARAMS.color;
       const r = half * PARAMS.roundness;
-      if (r <= 0) {
-        for (const p of this.particles) {
-          ctx.fillRect(p.x - half, p.y - half, cell, cell);
+
+      const drawShape = (px, py) => {
+        if (r <= 0) {
+          ctx.fillRect(px - half, py - half, cell, cell);
+        } else if (PARAMS.roundness >= 1) {
+          ctx.beginPath(); ctx.arc(px, py, half, 0, Math.PI * 2); ctx.fill();
+        } else {
+          ctx.beginPath(); ctx.roundRect(px - half, py - half, cell, cell, r); ctx.fill();
         }
-      } else if (PARAMS.roundness >= 1) {
-        for (const p of this.particles) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, half, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else {
-        for (const p of this.particles) {
-          ctx.beginPath();
-          ctx.roundRect(p.x - half, p.y - half, cell, cell, r);
-          ctx.fill();
-        }
-      }
+      };
+
+      // Actual particles
+      for (const p of this.particles) drawShape(p.x, p.y);
     }
 
     ctx.restore();
@@ -782,7 +787,7 @@ function loop(ts) {
   if (!frozen) {
     for (const l of letters) {
       l.stepLetter(dt);
-      l.stepParticles(dt);
+      if (PARAMS.cellPx > 2) l.stepParticles(dt);
     }
     resolveCollisions();
   }

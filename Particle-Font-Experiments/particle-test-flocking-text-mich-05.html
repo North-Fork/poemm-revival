@@ -603,36 +603,38 @@ class Letter {
     const half = cell / 2;
     ctx.save();
     ctx.translate(this.cx, this.cy);
-
-    // Ghost outline shows the letter container
     ctx.font         = this.fontStr;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle  = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth    = dpr;
-    ctx.strokeText(this.ch, 0, 0);
 
-    // Internal particles in local space
-    ctx.fillStyle = PARAMS.color;
-    const r = half * PARAMS.roundness;
-    if (r <= 0) {
-      // Pure square — fillRect is fastest
-      for (const p of this.particles) {
-        ctx.fillRect(p.x - half, p.y - half, cell, cell);
-      }
-    } else if (PARAMS.roundness >= 1) {
-      // Pure circle
-      for (const p of this.particles) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, half, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    if (PARAMS.cellPx <= 2) {
+      // Solid glyph — clean text render at small particle sizes (also fixes perf crawl)
+      ctx.fillStyle = PARAMS.color;
+      ctx.fillText(this.ch, 0, 0);
     } else {
-      // Rounded rectangle
-      for (const p of this.particles) {
-        ctx.beginPath();
-        ctx.roundRect(p.x - half, p.y - half, cell, cell, r);
-        ctx.fill();
+      // Ghost outline + particles
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth   = dpr;
+      ctx.strokeText(this.ch, 0, 0);
+
+      ctx.fillStyle = PARAMS.color;
+      const r = half * PARAMS.roundness;
+      if (r <= 0) {
+        for (const p of this.particles) {
+          ctx.fillRect(p.x - half, p.y - half, cell, cell);
+        }
+      } else if (PARAMS.roundness >= 1) {
+        for (const p of this.particles) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, half, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        for (const p of this.particles) {
+          ctx.beginPath();
+          ctx.roundRect(p.x - half, p.y - half, cell, cell, r);
+          ctx.fill();
+        }
       }
     }
 

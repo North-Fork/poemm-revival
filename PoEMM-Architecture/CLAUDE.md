@@ -37,6 +37,46 @@ Memory files live at:
 - **Canvas** positioned to the right of the panel (`left: 240px`), filling remaining space; use `window.devicePixelRatio` scaling
 - Panel CSS and behaviour must be self-contained in the single HTML file (no external dependencies)
 
+## NextText Framework
+
+NextText is the underlying framework for all PoEMM works.
+
+- **Repository:** https://github.com/prisonerjohn/NextText
+- **Language:** Processing/Java library (`net.nexttext` package)
+- **Co-created by:** Bruno Nadeau (Jason's PoEMM collaborator)
+
+### Text Hierarchy (top → bottom)
+
+```
+Book → Page → TextObjectGroup (passage/line) → TextObjectGlyph (glyph)
+```
+In PoEMM terms: book → passage → line → word → glyph
+
+### Behaviour System
+
+- Behaviours can be applied at any level of the hierarchy and stack on top of each other
+- e.g. apply Shake to a word → whole word shakes
+- e.g. also apply Flicker to the first two glyphs → those letters flicker AND shake simultaneously
+- The JS port uses stateless singleton behaviour objects with `apply(node, dt, book)`; per-node state stored on node via Symbol keys
+
+### Key Classes
+
+- `Book`, `TextObject`, `TextObjectGroup`, `TextObjectGlyph`
+- `TextObjectBuilder`, `TextObjectRoot`
+- Sub-packages: `behaviour/`, `input/`, `property/`, `renderer/`
+
+### Ports
+
+| Platform | Language | Used for |
+|----------|----------|----------|
+| iOS apps | Objective-C | Mobile PoEMM releases |
+| Gallery builds | Java/Processing | macOS 50" touchscreens |
+| Web port | JavaScript | Revitalization / new work |
+
+The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGlyph`.
+
+---
+
 ## Context
 
 PoEMM = Poetry for Excitable [Mobile] Media. See MEMORY.md for full project overview.

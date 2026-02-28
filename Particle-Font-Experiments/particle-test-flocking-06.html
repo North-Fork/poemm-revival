@@ -74,6 +74,16 @@ input[type=color] {
 #rebuild-btn:hover,  #export-btn:hover  { background: #253545; }
 #rebuild-btn:active, #export-btn:active { background: #0f1f2f; }
 
+#rec-btn {
+  width: 100%; padding: 7px; margin-top: 6px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rec-btn:hover  { background: #253545; }
+#rec-btn:active { background: #0f1f2f; }
+#rec-btn.recording { background: #2a0a0a; color: #f66; border-color: #602020; }
+#rec-status { font-size: 10px; color: #f66; margin-top: 4px; min-height: 14px; text-align: center; }
+
 .name-input, .set-select {
   width: 100%; background: #181818; color: #eee;
   border: 1px solid #2a2a2a; padding: 4px 6px; box-sizing: border-box;
@@ -117,6 +127,23 @@ Mich♥</textarea>
                style="width:16px;height:16px;cursor:pointer;accent-color:#7af">
       </div>
       <button id="export-btn">Save PNG</button>
+
+      <div class="param-row" style="margin-top:8px">
+        <div class="param-header">
+          <span class="param-name">FPS</span>
+          <span class="param-val" id="vRecFps">30 fps</span>
+        </div>
+        <input type="range" id="sRecFps" min="12" max="60" step="6" value="30">
+      </div>
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Duration (0 = manual stop)</span>
+          <span class="param-val" id="vRecDur">10 s</span>
+        </div>
+        <input type="range" id="sRecDur" min="0" max="60" step="5" value="10">
+      </div>
+      <button id="rec-btn">Record Video</button>
+      <div id="rec-status"></div>
 
       <div class="section-label">Settings</div>
 
@@ -1011,6 +1038,80 @@ document.getElementById('export-btn').addEventListener('click', () => {
   link.href     = off.toDataURL('image/png');
   link.click();
 });
+
+// ── Video Recording ────────────────────────────────────────────────────────────
+wire('sRecFps', 'vRecFps', v => `${v} fps`, () => {});
+wire('sRecDur', 'vRecDur', v => v === 0 ? 'manual' : `${v} s`, () => {});
+
+{
+  let mediaRecorder = null;
+  let recChunks     = [];
+  let recTimer      = null;
+
+  const recBtn    = document.getElementById('rec-btn');
+  const recStatus = document.getElementById('rec-status');
+
+  function startRecording() {
+    const fps    = parseInt(document.getElementById('sRecFps').value);
+    const durSec = parseInt(document.getElementById('sRecDur').value);
+    const stream = canvas.captureStream(fps);
+
+    const mimeType = [
+      'video/mp4;codecs=avc1',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+
+    recChunks     = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recChunks, { type: mimeType });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'particles.' + (mimeType.startsWith('video/mp4') ? 'mp4' : 'webm');
+      a.click();
+      URL.revokeObjectURL(url);
+      recBtn.textContent = 'Record Video';
+      recBtn.classList.remove('recording');
+      recStatus.textContent = '';
+    };
+
+    mediaRecorder.start(100);   // collect data in 100ms chunks
+    recBtn.textContent = 'Stop Recording';
+    recBtn.classList.add('recording');
+
+    let elapsed = 0;
+    recStatus.textContent = durSec > 0 ? `Recording… 0/${durSec}s` : 'Recording… 0s';
+    recTimer = setInterval(() => {
+      elapsed++;
+      recStatus.textContent = durSec > 0
+        ? `Recording… ${elapsed}/${durSec}s`
+        : `Recording… ${elapsed}s`;
+      if (durSec > 0 && elapsed >= durSec) stopRecording();
+    }, 1000);
+  }
+
+  function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    clearInterval(recTimer);
+    recStatus.textContent = 'Encoding…';
+    mediaRecorder.stop();
+  }
+
+  recBtn.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+}
 
 // ── Named Behaviour Sets ───────────────────────────────────────────────────────
 const BEHAVIOUR_SETS_KEY  = 'poemm-mich-05-Behaviour-Sets';

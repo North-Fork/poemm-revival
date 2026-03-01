@@ -1,0 +1,150 @@
+POST POSTSCRIPT PLEASE — PROGRAMMER SUMMARY Source: Lewis, J. E. &
+Nadeau, B. (2010). Digital Creativity 21(1), 18–29. File reference:
+fileciteturn0file0
+
+============================================================ 1. CORE
+PROBLEM ============================================================
+
+Current font technologies (PostScript, TrueType, OpenType) are
+fundamentally optimized for print reproduction, not dynamic,
+screen-native computation.
+
+Key limitations: - Static glyph definitions (outline-based) - Kerning
+optimized for 2D linear layout - No native support for temporal
+behavior - No interaction model - No network awareness - Difficult to
+integrate algorithmic behaviors at glyph level
+
+Result: Writers cannot easily operate at the letterform level as
+computational objects.
+
+============================================================ 2. PROPOSED
+SOLUTION: COMPLEXTYPE
+============================================================
+
+ComplexType is a proposed next-generation font specification designed
+for digital-first environments.
+
+Core Design Principles: - Modular architecture - Screen-native, not
+print-simulated - Glyphs as computational entities - Support for
+temporal, interactive, spatial behaviors - Writer-centered design
+
+ComplexType moves from: “Font = static outlines” to: “Font = executable
+glyph system”
+
+============================================================ 3.
+ARCHITECTURAL MODEL
+============================================================
+
+A ComplexType font contains modules.
+
+Required Modules: - FontInfo - CharacterMap
+
+Optional / Environment-Specific Modules: - GeometryModule (2D or 3D
+glyph definition) - DynamicsModule (temporal evolution rules) -
+InteractionModule (input-triggered behaviors) - DataModule (external
+data binding) - NetworkModule (inter-glyph or distributed behavior) -
+RenderingControlModule (fine-grain display rules)
+
+Applications inspect available modules and activate supported ones.
+
+============================================================ 4. GLYPH
+CAPABILITIES (RUNTIME MODEL)
+============================================================
+
+Each glyph may support:
+
+-   Time awareness
+-   State transitions
+-   Interaction handlers
+-   Physics-like behaviors
+-   External data processing
+-   Network communication
+-   Inter-glyph awareness
+
+Glyphs become active agents in a display system.
+
+============================================================ 5.
+TYPOGRAPHIC BEHAVIOR TAXONOMY
+============================================================
+
+A. Particle-based glyphs - Glyph composed of sub-elements - Supports
+transformation and fragmentation - Enables morphing (“spanning”)
+
+B. Dynamic accretion models - Particles aggregate to form glyph -
+Temporal emergence
+
+C. Interactive disruption models - Reader perturbs glyph structure
+
+D. 3D-native glyphs - Geometry defined as 3D mesh (triangles) - Designed
+for spatial environments
+
+E. Stroke-based glyphs - Procedural drawing model - Enables deformation
+over time
+
+============================================================ 6. WRITING
+WITH COMPLEXTYPE
+============================================================
+
+Key shift: Behavior becomes part of composition, not post-processing.
+
+Writers must be able to: - Specify glyph behavior (movement, lifespan,
+interaction) - Integrate semantics with animation - Prototype rapidly -
+Maintain authorial control
+
+ComplexType supports integrated writing-design-programming.
+
+============================================================ 7. SCENE
+GRAPH MODEL ============================================================
+
+SceneGraph │ ├── GlobalEnvironment │ ├── TimeSystem │ ├── InputSystem │
+├── PhysicsEngine (optional) │ ├── NetworkLayer (optional) │ └──
+ExternalDataSources │ ├── DocumentNode │ ├── LayoutManager │ ├──
+RenderingSurface │ │ ├── Camera (if 3D) │ │ └── Lighting (if 3D) │ │ │
+└── TextBlockNode(s) │ ├── LineNode(s) │ │ └── GlyphNode(s) │ │ ├──
+GeometryComponent │ │ ├── MaterialComponent │ │ ├── DynamicsComponent │
+│ ├── InteractionComponent │ │ ├── DataBindingComponent │ │ └──
+StateMachine │ │ │ └── InterGlyphRelations │ ├── Kerning (legacy
+support) │ ├── Spanning / Morphing Rules │ ├── ForceBindings │ └──
+NetworkBindings │ └── EventSystem ├── UserInputEvents ├── TimeStepEvents
+├── ExternalDataEvents └── NetworkEvents
+
+============================================================ 8.
+EXECUTION MODEL (SIMPLIFIED)
+============================================================
+
+For each frame:
+
+1.  Poll Input
+2.  Update Time
+3.  Process External Data
+4.  For each GlyphNode:
+    -   Update state machine
+    -   Apply dynamics rules
+    -   Resolve inter-glyph constraints
+    -   Apply interaction responses
+5.  Render scene
+6.  Broadcast network updates (if any)
+
+============================================================ 9. KEY
+ENGINEERING IMPLICATIONS
+============================================================
+
+-   Fonts become executable packages
+-   Requires sandboxing / security model
+-   Requires performance-aware modularity
+-   Backward compatibility layer desirable
+-   Standardization must involve writers and designers
+
+============================================================ 10.
+STRATEGIC TAKEAWAY
+============================================================
+
+Print-based font systems treat letters as static shapes.
+
+ComplexType treats letters as programmable objects.
+
+Meaningful digital writing requires control at the glyph computation
+layer.
+
+This summary is based on: Lewis & Nadeau, “Post PostScript please,”
+Digital Creativity 21(1), 18–29 fileciteturn0file0

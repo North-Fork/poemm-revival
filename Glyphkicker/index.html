@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Glyphkicker</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+#panel h1 {
+  font-size: 11px; color: #eee; margin-bottom: 14px;
+  font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+}
+
+.param-row { margin: 8px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 3px; }
+.param-name { font-size: 11px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; }
+
+input[type=range] {
+  width: 100%; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+.color-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.color-row label { font-size: 11px; color: #888; flex: 1; }
+input[type=color] {
+  width: 36px; height: 22px; border: 1px solid #333; background: none;
+  cursor: pointer; padding: 1px; border-radius: 3px;
+}
+
+.section-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #444; margin: 14px 0 6px; border-top: 1px solid #1e1e1e; padding-top: 8px;
+}
+
+select {
+  width: 100%; background: #181818; color: #eee;
+  border: 1px solid #2a2a2a; padding: 4px 6px; box-sizing: border-box;
+  font-size: 11px; margin-top: 4px; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+select:focus { outline: none; border-color: #336; }
+
+#canvas {
+  position: fixed; left: 240px; top: 0;
+  width: calc(100% - 240px); height: 100%;
+  display: block; outline: none; cursor: text;
+}
+
+.btn-group { display: flex; gap: 2px; margin-top: 4px; }
+.jbtn {
+  flex: 1; padding: 4px 0; font-size: 11px; cursor: pointer; letter-spacing: 0.05em;
+  background: #1a1a1a; color: #555; border: 1px solid #2a2a2a; border-radius: 2px;
+}
+.jbtn.active { background: #1a2a44; color: #7af; border-color: #336; }
+
+.mbtn {
+  flex: 1; padding: 4px 0; font-size: 11px; cursor: pointer; letter-spacing: 0.05em;
+  background: #1a1a1a; color: #555; border: 1px solid #2a2a2a; border-radius: 2px;
+}
+.mbtn.active { background: #1a2a44; color: #7af; border-color: #336; }
+
+.bph-empty { font-size: 10px; color: #444; padding: 6px 0; line-height: 1.5; }
+.bph-sel-label { font-size: 10px; color: #666; margin-bottom: 6px; }
+.bph-behaviour { margin-bottom: 10px; }
+.bph-beh-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.bph-beh-label { font-size: 11px; color: #aaa; }
+.bph-beh-remove { background: none; border: none; color: #444; cursor: pointer; font-size: 10px; padding: 0 2px; }
+.bph-beh-remove:hover { color: #f77; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>Glyphkicker</h1>
+
+  <div class="section-label">Type</div>
+
+  <div class="param-row">
+    <div class="param-header"><span class="param-name">Font</span></div>
+    <select id="sFontFamily">
+      <option value="Gill Sans">Gill Sans</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Helvetica Neue">Helvetica Neue</option>
+      <option value="Palatino">Palatino</option>
+      <option value="Times New Roman">Times New Roman</option>
+      <option value="Courier New">Courier New</option>
+    </select>
+  </div>
+
+  <div class="param-row">
+    <div class="param-header">
+      <span class="param-name">Size</span>
+      <span class="param-val" id="vFontPt">48 pt</span>
+    </div>
+    <input type="range" id="sFontPt" min="12" max="200" step="1" value="48">
+  </div>
+
+  <div class="param-row">
+    <div class="param-header"><span class="param-name">Justify</span></div>
+    <div class="btn-group" id="justifyGroup">
+      <button class="jbtn active" data-val="left">Left</button>
+      <button class="jbtn"        data-val="center">Center</button>
+      <button class="jbtn"        data-val="right">Right</button>
+    </div>
+  </div>
+
+  <div class="section-label">Colour</div>
+
+  <div class="color-row">
+    <label>Text</label>
+    <input type="color" id="cText" value="#ffffff">
+  </div>
+  <div class="color-row">
+    <label>Background</label>
+    <input type="color" id="cBg" value="#000000">
+  </div>
+
+  <div class="section-label">Mode</div>
+  <div class="btn-group" id="modeGroup">
+    <button class="mbtn active" data-mode="type">Type</button>
+    <button class="mbtn"        data-mode="select">Select</button>
+  </div>
+
+  <div id="selectionPanel" style="display:none">
+    <div class="section-label">Behaviours</div>
+    <div id="bPanel"></div>
+    <div class="param-row">
+      <select id="bAdd">
+        <option value="">— add behaviour —</option>
+        <option value="Drift">Drift</option>
+        <option value="Shake">Shake</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<canvas id="canvas" tabindex="0"></canvas>
+
+<script>
+'use strict';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+const PANEL_W     = 240;
+const MARGIN      = 40;
+const LINE_H_MULT = 1.45;
+const FIXED_DT    = 1 / 60;   // fixed physics timestep (seconds)
+
+// ── Params ─────────────────────────────────────────────────────────────────────
+const PARAMS = {
+  fontFamily: 'Gill Sans',
+  fontPt:     48,
+  color:      '#ffffff',
+  background: '#000000',
+  justify:    'left',
+};
+
+// ── Seeded RNG ─────────────────────────────────────────────────────────────────
+// Deterministic per-glyph random — same seed always produces the same sequence.
+function hashStr(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h  = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h || 1;
+}
+
+function makeRNG(seed) {
+  let s = typeof seed === 'string' ? hashStr(seed) : ((seed >>> 0) || 1);
+  return () => {
+    s = (Math.imul(1664525, s) + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+}
+
+// ── Canvas ─────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+const dpr    = window.devicePixelRatio || 1;
+let W = 0, H = 0;
+
+// ── Input state ─────────────────────────────────────────────────────────────────
+const inputState = { x: 0, y: 0, down: false, onCanvas: false };
+
+function resizeCanvas() {
+  W = window.innerWidth - PANEL_W;
+  H = window.innerHeight;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layout();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// ── Document model ─────────────────────────────────────────────────────────────
+let docText     = '';
+let cursorPos   = 0;
+let glyphs      = [];
+let prevDocText = '';   // last-laid-out string, used for position transfer
+
+// ── Editor mode & selection ─────────────────────────────────────────────────────
+let editorMode    = 'type';    // 'type' | 'select'
+let selectedIds   = new Set(); // IDs of currently selected glyph agents
+let selectedGlyphs = [];       // live references (re-synced after each layout)
+
+// ── GlyphAgent ─────────────────────────────────────────────────────────────────
+let _uid = 0;
+
+function makeGlyph(char, index, hx, hy, w) {
+  const id = `g${_uid++}`;
+  return {
+    id,
+    char,
+    index,
+    homeX: hx, homeY: hy,   // typographic home (CSS px) — set by layout
+    x: hx, y: hy,            // current visual position
+    rotation: 0,             // radians
+
+    w,                       // advance width (CSS px)
+
+    // ── ECS components ──────────────────────────────────────────────────────
+    dynamics: {
+      vx: 0, vy: 0,          // CSS px/s
+      angularVel: 0,         // rad/s
+      damping: 0.92,         // velocity multiplier each physics step
+    },
+    material: {
+      fill:      null,       // null → inherit PARAMS.color
+      opacity:   1,
+      blendMode: 'source-over',
+    },
+    geometry:    { type: 'outline2d' },
+    interaction: { hovered: false, selected: false },
+
+    // Active behaviour instances — each is { type: <Behaviour>, params: {...} }
+    behaviours: [],
+
+    // Behaviour state — keyed by Symbol, owned by individual behaviours
+    _state: new Map(),
+
+    // Deterministic RNG seeded from this glyph's id
+    rng: makeRNG(id),
+  };
+}
+
+// ── Position transfer helpers ──────────────────────────────────────────────────
+// Copy all visual/dynamic state from a previous glyph agent to a newly-built one.
+function transferGlyph(src, dst) {
+  dst.id         = src.id;
+  dst.x          = src.x;
+  dst.y          = src.y;
+  dst.rotation   = src.rotation;
+  dst.dynamics   = src.dynamics;
+  dst.material   = src.material;
+  dst._state     = src._state;
+  dst.rng        = src.rng;
+  dst.behaviours = src.behaviours;
+}
+
+// Set initial position of a brand-new glyph by interpolating between its
+// nearest visible neighbours — but only if they have actually drifted from home.
+// When no behaviours are active the neighbours sit at home, so we just use
+// this glyph's own homeX/homeY (already set by makeGlyph).
+function spawnInterpolated(g, arr) {
+  const idx = arr.indexOf(g);
+  let L = null, R = null;
+  for (let i = idx - 1; i >= 0; i--) {
+    if (arr[i].char !== '\n' && arr[i].char !== ' ') { L = arr[i]; break; }
+  }
+  for (let i = idx + 1; i < arr.length; i++) {
+    if (arr[i].char !== '\n' && arr[i].char !== ' ') { R = arr[i]; break; }
+  }
+  const drifted = n => n && (Math.abs(n.x - n.homeX) > 5 || Math.abs(n.y - n.homeY) > 5);
+  const ld = drifted(L), rd = drifted(R);
+  if      (ld && rd) { g.x = (L.x + R.x) * 0.5; g.y = (L.y + R.y) * 0.5; }
+  else if (ld)       { g.x = L.x; g.y = L.y; }
+  else if (rd)       { g.x = R.x; g.y = R.y; }
+  // else: neighbours are at home — keep this glyph's own homeX/homeY
+}
+
+// ── Layout engine ──────────────────────────────────────────────────────────────
+function fontStr() {
+  return `${PARAMS.fontPt}px "${PARAMS.fontFamily}", serif`;
+}
+
+// Returns the x-start for a line whose visible content is contentW pixels wide.
+function justifyX(contentW) {
+  switch (PARAMS.justify) {
+    case 'center': return Math.max(MARGIN, (W - contentW) / 2);
+    case 'right':  return Math.max(MARGIN, W - MARGIN - contentW);
+    default:       return MARGIN;
+  }
+}
+
+function layout() {
+  if (!W) return;
+
+  ctx.font         = fontStr();
+  ctx.textBaseline = 'alphabetic';
+
+  const lineH  = PARAMS.fontPt * LINE_H_MULT;
+  const spaceW = ctx.measureText(' ').width;
+  const next   = [];
+
+  // ── Parse text into segments ──────────────────────────────────────────────
+  const segs = [];
+  let word = '', wordStart = 0;
+  for (let i = 0; i <= docText.length; i++) {
+    const ch = i < docText.length ? docText[i] : null;
+    if (ch === null || ch === ' ' || ch === '\n') {
+      if (word.length) { segs.push({ type: 'word', text: word, start: wordStart }); word = ''; }
+      if (ch === ' ')  segs.push({ type: 'space',  text: ' ',  start: i });
+      if (ch === '\n') segs.push({ type: 'newline', text: '\n', start: i });
+    } else {
+      if (!word.length) wordStart = i;
+      word += ch;
+    }
+  }
+
+  // ── First pass: break segments into visual lines ──────────────────────────
+  // Each line: { items: [{seg, cws?}], contentW (trailing spaces excluded) }
+  const lines = [];
+  let curItems = [], runX = 0, runW = 0;
+
+  const flushLine = () => {
+    let trimW = runW;
+    for (let i = curItems.length - 1; i >= 0; i--) {
+      if (curItems[i].seg.type === 'space') trimW -= spaceW; else break;
+    }
+    lines.push({ items: curItems, contentW: trimW });
+    curItems = []; runX = 0; runW = 0;
+  };
+
+  for (const seg of segs) {
+    if (seg.type === 'newline') {
+      curItems.push({ seg }); flushLine();
+    } else if (seg.type === 'space') {
+      curItems.push({ seg }); runX += spaceW; runW += spaceW;
+    } else {
+      const cws   = [...seg.text].map(c => ctx.measureText(c).width);
+      const wordW = cws.reduce((a, b) => a + b, 0);
+      if (runX > 0 && runX + wordW > W - 2 * MARGIN) flushLine();
+      curItems.push({ seg, cws, wordW }); runX += wordW; runW += wordW;
+    }
+  }
+  if (curItems.length) flushLine();
+
+  // ── Second pass: place glyphs anchored by justification ──────────────────
+  let y = MARGIN + PARAMS.fontPt;
+  for (const line of lines) {
+    let x = justifyX(line.contentW);
+    for (const { seg, cws } of line.items) {
+      if (seg.type === 'newline') {
+        next.push(makeGlyph('\n', seg.start, x, y, 0)); y += lineH;
+      } else if (seg.type === 'space') {
+        next.push(makeGlyph(' ', seg.start, x, y, spaceW)); x += spaceW;
+      } else {
+        for (let k = 0; k < seg.text.length; k++) {
+          next.push(makeGlyph(seg.text[k], seg.start + k, x, y, cws[k]));
+          x += cws[k];
+        }
+      }
+    }
+  }
+
+  // ── Transfer visual state from previous glyphs ────────────────────────────
+  // Detect what kind of edit happened so we can match character identity.
+  const prevByIdx = new Map(glyphs.map(g => [g.index, g]));
+  const newLen    = docText.length;
+  const oldLen    = prevDocText.length;
+
+  if (newLen === oldLen + 1) {
+    // Single insertion: find where the new character was inserted
+    let p = 0;
+    while (p < oldLen && prevDocText[p] === docText[p]) p++;
+    for (const g of next) {
+      if (g.index < p)  { const s = prevByIdx.get(g.index);     if (s) transferGlyph(s, g); }
+      else if (g.index === p) { spawnInterpolated(g, next); }
+      else              { const s = prevByIdx.get(g.index - 1); if (s) transferGlyph(s, g); }
+    }
+  } else if (newLen === oldLen - 1) {
+    // Single deletion: find what was removed
+    let p = 0;
+    while (p < newLen && docText[p] === prevDocText[p]) p++;
+    for (const g of next) {
+      const s = g.index < p
+        ? prevByIdx.get(g.index)
+        : prevByIdx.get(g.index + 1);
+      if (s) transferGlyph(s, g);
+    }
+  } else if (newLen > oldLen) {
+    // Paste or multi-insert: transfer what matches, interpolate the rest
+    for (const g of next) {
+      const s = prevByIdx.get(g.index);
+      if (s && s.char === g.char) transferGlyph(s, g);
+    }
+    for (const g of next) {
+      if (!prevByIdx.has(g.index)) spawnInterpolated(g, next);
+    }
+  } else {
+    // Font change, resize, or other same-length edit: reflow home positions
+    // but preserve each glyph's drift offset relative to its new home.
+    for (const g of next) {
+      const s = prevByIdx.get(g.index);
+      if (!s) continue;
+      g.id         = s.id;
+      g.x          = g.homeX + (s.x - s.homeX);
+      g.y          = g.homeY + (s.y - s.homeY);
+      g.rotation   = s.rotation;
+      g.dynamics   = s.dynamics;
+      g.material   = s.material;
+      g._state     = s._state;
+      g.rng        = s.rng;
+      g.behaviours = s.behaviours;
+    }
+  }
+
+  prevDocText = docText;
+  glyphs = next;
+  // Re-sync selected glyph references — layout rebuilds the array but transferGlyph preserves ids.
+  selectedGlyphs = glyphs.filter(g => selectedIds.has(g.id));
+  if (editorMode === 'select') updateBehaviourPanel();
+}
+
+// ── Behaviour system ────────────────────────────────────────────────────────────
+// Stateless singletons: { sym, defaults, apply(g, dt, ctx, params) }
+// Per-glyph state lives in g._state.get(Behaviour.sym)
+
+const Drift = {
+  sym:      Symbol('Drift'),
+  defaults: { amplitude: 60, speed: 25 },
+  apply(g, dt, ctx, p) {
+    let s = g._state.get(Drift.sym);
+    if (!s) {
+      // Target stored as offset from home so it tracks home across layout reflows.
+      s = { dx: 0, dy: 0 };
+      g._state.set(Drift.sym, s);
+    }
+    const tx = g.homeX + s.dx, ty = g.homeY + s.dy;
+    const vx = tx - g.x,       vy = ty - g.y;
+    const d  = Math.hypot(vx, vy);
+    if (d < 4) {
+      // Arrived — pick new wander target as offset from home
+      const angle = g.rng() * Math.PI * 2;
+      const r     = g.rng() * p.amplitude;
+      s.dx = Math.cos(angle) * r;
+      s.dy = Math.sin(angle) * r;
+    } else {
+      // Blend velocity toward desired speed in direction of target
+      g.dynamics.vx += ((vx / d) * p.speed - g.dynamics.vx) * 0.12;
+      g.dynamics.vy += ((vy / d) * p.speed - g.dynamics.vy) * 0.12;
+    }
+  },
+};
+
+const Shake = {
+  sym:      Symbol('Shake'),
+  defaults: { amplitude: 4, speed: 15 },
+  apply(g, dt, ctx, p) {
+    let s = g._state.get(Shake.sym);
+    if (!s) {
+      s = { px: g.rng() * Math.PI * 2, py: g.rng() * Math.PI * 2 };
+      g._state.set(Shake.sym, s);
+    }
+    const w = p.speed * Math.PI * 2;
+    const t = ctx.time;
+    g.dynamics.vx += Math.cos(t * w + s.px) * p.amplitude * w * dt;
+    g.dynamics.vy += Math.cos(t * w + s.py) * p.amplitude * w * dt * 0.7;
+  },
+};
+
+// ── Behaviour registry ──────────────────────────────────────────────────────────
+const BEHAVIOUR_DEFS = [
+  {
+    key: 'Drift', type: Drift, label: 'Drift',
+    params: [
+      { key: 'amplitude', label: 'Amplitude', min: 5,   max: 200, step: 1,   suffix: 'px',   default: 60 },
+      { key: 'speed',     label: 'Speed',     min: 5,   max: 100, step: 1,   suffix: 'px/s', default: 25 },
+    ],
+  },
+  {
+    key: 'Shake', type: Shake, label: 'Shake',
+    params: [
+      { key: 'amplitude', label: 'Amplitude', min: 0.5, max: 20,  step: 0.5, suffix: 'px',   default: 4 },
+      { key: 'speed',     label: 'Speed',     min: 1,   max: 30,  step: 0.5, suffix: 'Hz',   default: 15 },
+    ],
+  },
+];
+
+// ── Selection & behaviour authoring ─────────────────────────────────────────────
+function nearestGlyph(mx, my) {
+  let best = null, bestD = Infinity;
+  for (const g of glyphs) {
+    if (g.char === '\n' || g.char === ' ') continue;
+    const d = Math.hypot(g.x + g.w * 0.5 - mx, g.y - PARAMS.fontPt * 0.4 - my);
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  return best;
+}
+
+function selectGlyphs(gs) {
+  selectedGlyphs = gs;
+  selectedIds    = new Set(gs.map(g => g.id));
+  updateBehaviourPanel();
+}
+
+function selectWord(g) {
+  const i = g.index;
+  let lo = i, hi = i;
+  while (lo > 0 && docText[lo - 1] !== ' ' && docText[lo - 1] !== '\n') lo--;
+  while (hi < docText.length && docText[hi] !== ' ' && docText[hi] !== '\n') hi++;
+  selectGlyphs(glyphs.filter(h => h.index >= lo && h.index < hi && h.char !== '\n' && h.char !== ' '));
+}
+
+function setEditorMode(mode) {
+  editorMode = mode;
+  canvas.style.cursor = mode === 'type' ? 'text' : 'default';
+  const sp = document.getElementById('selectionPanel');
+  if (sp) sp.style.display = mode === 'select' ? 'block' : 'none';
+  document.querySelectorAll('.mbtn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  if (mode === 'type') selectGlyphs([]);
+}
+
+function addBehaviour(defKey) {
+  const def = BEHAVIOUR_DEFS.find(d => d.key === defKey);
+  if (!def || selectedGlyphs.length === 0) return;
+  const inst = { type: def.type, params: def.params.reduce((o, p) => ({ ...o, [p.key]: p.default }), {}) };
+  for (const g of selectedGlyphs) g.behaviours.push(inst);
+  updateBehaviourPanel();
+}
+
+function removeBehaviourAtIndex(idx) {
+  for (const g of selectedGlyphs) g.behaviours.splice(idx, 1);
+  updateBehaviourPanel();
+}
+
+function updateBehaviourPanel() {
+  const panel = document.getElementById('bPanel');
+  if (!panel) return;
+  if (selectedGlyphs.length === 0) {
+    panel.innerHTML = '<div class="bph-empty">No glyphs selected.<br>Click a glyph to select it.</div>';
+    return;
+  }
+  const lbl  = selectedGlyphs.length === 1
+    ? `"${selectedGlyphs[0].char}" selected`
+    : `${selectedGlyphs.length} glyphs selected`;
+  const behs = selectedGlyphs[0].behaviours;
+  let html = `<div class="bph-sel-label">${lbl}</div>`;
+  for (let i = 0; i < behs.length; i++) {
+    const inst = behs[i];
+    const def  = BEHAVIOUR_DEFS.find(d => d.type === inst.type);
+    if (!def) continue;
+    html += `<div class="bph-behaviour">`;
+    html += `<div class="bph-beh-header"><span class="bph-beh-label">${def.label}</span>`;
+    html += `<button class="bph-beh-remove" data-idx="${i}">✕</button></div>`;
+    for (const pd of def.params) {
+      const v = inst.params[pd.key];
+      html += `<div class="param-row" style="padding-left:10px">`;
+      html += `<div class="param-header"><span class="param-name">${pd.label}</span>`;
+      html += `<span class="param-val bph-pval" data-bidx="${i}" data-pk="${pd.key}">${v} ${pd.suffix}</span></div>`;
+      html += `<input type="range" class="bph-slider" min="${pd.min}" max="${pd.max}" step="${pd.step}" value="${v}"`;
+      html += ` data-bidx="${i}" data-pk="${pd.key}" data-sfx="${pd.suffix}">`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  panel.innerHTML = html;
+  panel.querySelectorAll('.bph-beh-remove').forEach(btn => {
+    btn.addEventListener('click', () => removeBehaviourAtIndex(+btn.dataset.idx));
+  });
+  panel.querySelectorAll('.bph-slider').forEach(sl => {
+    sl.addEventListener('input', () => {
+      const bidx = +sl.dataset.bidx, pk = sl.dataset.pk, v = parseFloat(sl.value);
+      for (const g of selectedGlyphs) { if (g.behaviours[bidx]) g.behaviours[bidx].params[pk] = v; }
+      const valEl = panel.querySelector(`.bph-pval[data-bidx="${bidx}"][data-pk="${pk}"]`);
+      if (valEl) valEl.textContent = `${v} ${sl.dataset.sfx}`;
+    });
+  });
+}
+
+// ── Dynamics integration ────────────────────────────────────────────────────────
+function stepDynamics(dt, ctx) {
+  for (const g of glyphs) {
+    // Run all active behaviours before integrating position
+    for (const inst of g.behaviours) {
+      inst.type.apply(g, dt, ctx, inst.params);
+    }
+    const d = g.dynamics;
+    g.x        += d.vx         * dt;
+    g.y        += d.vy         * dt;
+    g.rotation += d.angularVel * dt;
+    d.vx        *= d.damping;
+    d.vy        *= d.damping;
+    d.angularVel *= d.damping;
+  }
+}
+
+// ── Cursor helpers ─────────────────────────────────────────────────────────────
+function cursorBaseline() {
+  const lineH = PARAMS.fontPt * LINE_H_MULT;
+  if (glyphs.length === 0) return { x: justifyX(0), y: MARGIN + PARAMS.fontPt };
+
+  // Use visual position (g.x / g.y) so cursor follows drifted glyphs.
+  const right = glyphs.find(g => g.index === cursorPos);
+  if (right && right.char !== '\n') return { x: right.x, y: right.y };
+
+  const left = glyphs.find(g => g.index === cursorPos - 1);
+  if (left) {
+    if (left.char === '\n') {
+      // Start of next line — find the first glyph there, or fall back to home.
+      const first = glyphs.find(g => g.index >= cursorPos && g.char !== '\n');
+      if (first) return { x: first.x, y: first.y };
+      return { x: justifyX(0), y: left.homeY + lineH };
+    }
+    return { x: left.x + left.w, y: left.y };
+  }
+  return { x: justifyX(0), y: MARGIN + PARAMS.fontPt };
+}
+
+// ── Cursor blink ───────────────────────────────────────────────────────────────
+let cursorOn  = true;
+let lastBlink = 0;
+const BLINK_MS = 530;
+function resetBlink() { cursorOn = true; lastBlink = performance.now(); }
+
+// ── Render loop ────────────────────────────────────────────────────────────────
+let lastTs      = null;
+let accumulator = 0;
+
+function loop(ts) {
+  // Fixed-timestep physics
+  const elapsed = lastTs !== null ? Math.min((ts - lastTs) / 1000, 0.1) : 0;
+  lastTs = ts;
+  accumulator += elapsed;
+  const bCtx = { glyphs, inputState, time: ts / 1000 };
+  while (accumulator >= FIXED_DT) {
+    stepDynamics(FIXED_DT, bCtx);
+    accumulator -= FIXED_DT;
+  }
+
+  // Cursor blink
+  if (ts - lastBlink > BLINK_MS) { cursorOn = !cursorOn; lastBlink = ts; }
+
+  // Clear
+  ctx.fillStyle = PARAMS.background;
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw glyphs — each with its own transform and material
+  ctx.font         = fontStr();
+  ctx.textBaseline = 'alphabetic';
+
+  // Cursor target highlight: only in type mode.
+  const cursorTarget = (editorMode === 'type' && document.activeElement === canvas)
+    ? (glyphs.find(g => g.index === cursorPos     && g.char !== '\n' && g.char !== ' ') ||
+       glyphs.find(g => g.index === cursorPos - 1 && g.char !== '\n' && g.char !== ' '))
+    : null;
+
+  // Nearest glyph to mouse — recomputed every frame so it tracks drifting glyphs.
+  let hoveredGlyph = null;
+  if (inputState.onCanvas) {
+    let hBest = null, hDist = Infinity;
+    for (const g of glyphs) {
+      if (g.char === '\n' || g.char === ' ') continue;
+      const d = Math.hypot(g.x + g.w * 0.5 - inputState.x, g.y - PARAMS.fontPt * 0.4 - inputState.y);
+      if (d < hDist) { hDist = d; hBest = g; }
+    }
+    hoveredGlyph = hBest;
+  }
+
+  for (const g of glyphs) {
+    if (g.char === '\n' || g.char === ' ') continue;
+
+    const m          = g.material;
+    const isSelected = selectedIds.has(g.id);
+    const isTarget   = g === cursorTarget;
+    const isHovered  = g === hoveredGlyph && !isSelected;
+
+    if (g.rotation !== 0) {
+      const cx = g.x + g.w * 0.5;
+      const cy = g.y - PARAMS.fontPt * 0.4;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(g.rotation);
+      const r = [-g.w * 0.5 - 2, -PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
+      ctx.globalCompositeOperation = 'source-over';
+      if (isSelected) {
+        ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
+        ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      } else if (isTarget) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+      } else if (isHovered) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+        ctx.strokeStyle = '#7af'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      }
+      ctx.globalAlpha              = m.opacity;
+      ctx.globalCompositeOperation = m.blendMode;
+      ctx.fillStyle                = m.fill || PARAMS.color;
+      ctx.fillText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      ctx.restore();
+    } else {
+      const r = [g.x - 2, g.y - PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
+      ctx.globalCompositeOperation = 'source-over';
+      if (isSelected) {
+        ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
+        ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      } else if (isTarget) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+      } else if (isHovered) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+        ctx.strokeStyle = '#7af'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      }
+      ctx.globalAlpha              = m.opacity;
+      ctx.globalCompositeOperation = m.blendMode;
+      ctx.fillStyle                = m.fill || PARAMS.color;
+      ctx.fillText(g.char, g.x, g.y);
+    }
+  }
+
+  ctx.globalAlpha              = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Cursor (type mode only)
+  if (editorMode === 'type' && document.activeElement === canvas && cursorOn) {
+    const bl = cursorBaseline();
+    ctx.fillStyle = PARAMS.color;
+    ctx.fillRect(bl.x, bl.y - PARAMS.fontPt * 0.85, 2, PARAMS.fontPt);
+  }
+
+  // Placeholder when empty and unfocused
+  if (docText.length === 0 && document.activeElement !== canvas) {
+    ctx.font         = `${Math.round(PARAMS.fontPt * 0.3)}px system-ui, sans-serif`;
+    ctx.fillStyle    = '#333';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('click to start typing', MARGIN, MARGIN + PARAMS.fontPt * 0.3);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ── Input: keyboard ────────────────────────────────────────────────────────────
+canvas.addEventListener('keydown', e => {
+  const mod = e.ctrlKey || e.metaKey;
+
+  if (e.key === 'Escape') {
+    if (editorMode === 'select') { selectGlyphs([]); e.preventDefault(); }
+    return;
+  }
+
+  if (editorMode === 'select') return; // Keyboard editing disabled in select mode
+
+  if (e.key === 'Backspace') {
+    if (mod) {
+      let i = cursorPos;
+      while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
+      while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
+      docText = docText.slice(0, i) + docText.slice(cursorPos);
+      cursorPos = i;
+    } else if (cursorPos > 0) {
+      docText = docText.slice(0, cursorPos - 1) + docText.slice(cursorPos);
+      cursorPos--;
+    }
+    layout(); resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'Delete') {
+    if (cursorPos < docText.length) {
+      docText = docText.slice(0, cursorPos) + docText.slice(cursorPos + 1);
+    }
+    layout(); resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'Enter') {
+    docText = docText.slice(0, cursorPos) + '\n' + docText.slice(cursorPos);
+    cursorPos++;
+    layout(); resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'ArrowLeft') {
+    if (mod) {
+      let i = cursorPos;
+      while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
+      while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
+      cursorPos = i;
+    } else {
+      cursorPos = Math.max(0, cursorPos - 1);
+    }
+    resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'ArrowRight') {
+    if (mod) {
+      let i = cursorPos;
+      while (i < docText.length && (docText[i] === ' ' || docText[i] === '\n')) i++;
+      while (i < docText.length && docText[i] !== ' ' && docText[i] !== '\n') i++;
+      cursorPos = i;
+    } else {
+      cursorPos = Math.min(docText.length, cursorPos + 1);
+    }
+    resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'Home') {
+    let i = cursorPos - 1;
+    while (i >= 0 && docText[i] !== '\n') i--;
+    cursorPos = i + 1;
+    resetBlink(); e.preventDefault();
+
+  } else if (e.key === 'End') {
+    let i = cursorPos;
+    while (i < docText.length && docText[i] !== '\n') i++;
+    cursorPos = i;
+    resetBlink(); e.preventDefault();
+
+  } else if (e.key.length === 1 && !mod) {
+    docText = docText.slice(0, cursorPos) + e.key + docText.slice(cursorPos);
+    cursorPos++;
+    layout(); resetBlink(); e.preventDefault();
+  }
+});
+
+// ── Input: paste ───────────────────────────────────────────────────────────────
+canvas.addEventListener('paste', e => {
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  if (!text) return;
+  docText = docText.slice(0, cursorPos) + text + docText.slice(cursorPos);
+  cursorPos += text.length;
+  layout(); resetBlink();
+  e.preventDefault();
+});
+
+// ── Input: click ───────────────────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  canvas.focus();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  if (editorMode === 'select') {
+    const g = nearestGlyph(mx, my);
+    selectGlyphs(g ? [g] : []);
+    return;
+  }
+
+  // type mode: position cursor
+  if (glyphs.length === 0) { cursorPos = 0; resetBlink(); return; }
+  let best = null, bestDist = Infinity;
+  for (const g of glyphs) {
+    if (g.char === '\n') continue;
+    const gx = g.x + g.w * 0.5;
+    const gy = g.y - PARAMS.fontPt * 0.4;
+    const d  = Math.hypot(gx - mx, gy - my);
+    if (d < bestDist) { bestDist = d; best = g; }
+  }
+  cursorPos = best
+    ? (mx < best.x + best.w * 0.5 ? best.index : best.index + 1)
+    : docText.length;
+  resetBlink();
+});
+
+// Double-click selects the whole word (select mode only)
+canvas.addEventListener('dblclick', e => {
+  if (editorMode !== 'select') return;
+  const rect = canvas.getBoundingClientRect();
+  const g = nearestGlyph(e.clientX - rect.left, e.clientY - rect.top);
+  if (g) selectWord(g);
+  e.preventDefault();
+});
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  inputState.x = e.clientX - r.left;
+  inputState.y = e.clientY - r.top;
+  inputState.onCanvas = true;
+});
+canvas.addEventListener('mouseleave', () => { inputState.onCanvas = false; });
+canvas.addEventListener('mousedown', () => { inputState.down = true;  canvas.focus(); });
+canvas.addEventListener('mouseup',   () => { inputState.down = false; });
+
+// ── Panel wiring ───────────────────────────────────────────────────────────────
+document.getElementById('sFontFamily').addEventListener('change', e => {
+  PARAMS.fontFamily = e.target.value; layout();
+});
+
+document.getElementById('justifyGroup').addEventListener('click', e => {
+  const btn = e.target.closest('.jbtn');
+  if (!btn) return;
+  PARAMS.justify = btn.dataset.val;
+  document.querySelectorAll('.jbtn').forEach(b => b.classList.toggle('active', b === btn));
+  layout();
+});
+
+const sFontPt = document.getElementById('sFontPt');
+const vFontPt = document.getElementById('vFontPt');
+sFontPt.addEventListener('input', () => {
+  PARAMS.fontPt = parseInt(sFontPt.value);
+  vFontPt.textContent = PARAMS.fontPt + ' pt';
+  layout();
+});
+
+document.getElementById('cText').addEventListener('input', e => { PARAMS.color      = e.target.value; });
+document.getElementById('cBg'  ).addEventListener('input', e => { PARAMS.background = e.target.value; });
+
+// ── Mode toggle ─────────────────────────────────────────────────────────────────
+document.getElementById('modeGroup').addEventListener('click', e => {
+  const btn = e.target.closest('.mbtn');
+  if (!btn) return;
+  setEditorMode(btn.dataset.mode);
+});
+
+// ── Add behaviour ───────────────────────────────────────────────────────────────
+document.getElementById('bAdd').addEventListener('change', function() {
+  if (!this.value) return;
+  addBehaviour(this.value);
+  this.value = '';
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+resizeCanvas();
+requestAnimationFrame(loop);
+canvas.focus();
+</script>
+</body>
+</html>

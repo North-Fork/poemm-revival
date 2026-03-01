@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Particle Text 07</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+#panel {
+  position: fixed; left: 0; top: 0; width: 320px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+.panel-columns { display: flex; gap: 8px; }
+.panel-col { flex: 1; min-width: 0; }
+#panel h1 { font-size: 13px; color: #eee; margin-bottom: 14px;
+            font-weight: 600; letter-spacing: 0.04em; }
+
+.param-row { margin: 8px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 3px; }
+.param-name { font-size: 11px; color: #888; }
+.param-val  { font-size: 10px; color: #7af; font-family: monospace; }
+
+input[type=range] {
+  width: 100%; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+#count-note { font-size: 10px; color: #555; margin-top: 3px; }
+
+.color-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.color-row label { font-size: 11px; color: #888; flex: 1; }
+input[type=color] {
+  width: 36px; height: 22px; border: 1px solid #333; background: none;
+  cursor: pointer; padding: 1px; border-radius: 3px;
+}
+.section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+                 color: #444; margin: 14px 0 6px; border-top: 1px solid #1e1e1e;
+                 padding-top: 8px; }
+
+
+#poem-text {
+  width: 100%; background: #181818; color: #eee;
+  border: 1px solid #2a2a2a; padding: 6px;
+  font-size: 13px; font-family: "Gill Sans", Georgia, serif;
+  line-height: 1.5; resize: vertical; min-height: 52px;
+}
+#poem-text:focus { outline: none; border-color: #336; }
+#apply-btn, #freeze-btn {
+  width: 100%; padding: 6px; margin-top: 5px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#apply-btn:hover,  #freeze-btn:hover  { background: #253545; }
+#apply-btn:active, #freeze-btn:active { background: #0f1f2f; }
+#freeze-btn.frozen { background: #2a1a1a; color: #f77; border-color: #602a2a; }
+#rebuild-btn, #export-btn {
+  width: 100%; padding: 7px; margin-top: 18px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rebuild-btn:hover,  #export-btn:hover  { background: #253545; }
+#rebuild-btn:active, #export-btn:active { background: #0f1f2f; }
+
+#rec-btn {
+  width: 100%; padding: 7px; margin-top: 6px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#rec-btn:hover  { background: #253545; }
+#rec-btn:active { background: #0f1f2f; }
+#rec-btn.recording { background: #2a0a0a; color: #f66; border-color: #602020; }
+#rec-status { font-size: 10px; color: #f66; margin-top: 4px; min-height: 14px; text-align: center; }
+
+.name-input, .set-select {
+  width: 100%; background: #181818; color: #eee;
+  border: 1px solid #2a2a2a; padding: 4px 6px; box-sizing: border-box;
+  font-size: 11px; margin-top: 4px;
+}
+.name-input:focus, .set-select:focus { outline: none; border-color: #336; }
+.set-select { cursor: pointer; }
+.settings-group { margin-top: 8px; }
+.settings-group > .param-name { font-size: 10px; color: #666;
+  text-transform: uppercase; letter-spacing: 0.08em; }
+.set-actions { display: flex; gap: 4px; margin-top: 4px; }
+.set-actions button, .settings-group > button {
+  flex: 1; width: 100%; padding: 5px 0; margin-top: 4px;
+  background: #1a2a3a; color: #7af; border: 1px solid #2a4060;
+  cursor: pointer; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.set-actions button:hover,  .settings-group > button:hover  { background: #253545; }
+.set-actions button:active, .settings-group > button:active { background: #0f1f2f; }
+
+canvas { position: fixed; left: 320px; top: 0; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>Particle Text</h1>
+  <div class="panel-columns">
+
+    <div class="panel-col">
+      <textarea id="poem-text" rows="3" spellcheck="false">Mahalo
+nui loa!
+Mich♥</textarea>
+      <button id="apply-btn">Apply</button>
+      <button id="freeze-btn">Freeze</button>
+
+      <div class="section-label">Export</div>
+
+      <div class="color-row" style="margin-bottom:6px">
+        <label for="ckTransparent">Transparent background</label>
+        <input type="checkbox" id="ckTransparent" checked
+               style="width:16px;height:16px;cursor:pointer;accent-color:#7af">
+      </div>
+      <button id="export-btn">Save PNG</button>
+
+      <div class="param-row" style="margin-top:8px">
+        <div class="param-header">
+          <span class="param-name">FPS</span>
+          <span class="param-val" id="vRecFps">30 fps</span>
+        </div>
+        <input type="range" id="sRecFps" min="12" max="60" step="6" value="30">
+      </div>
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Duration (0 = manual stop)</span>
+          <span class="param-val" id="vRecDur">10 s</span>
+        </div>
+        <input type="range" id="sRecDur" min="0" max="60" step="5" value="10">
+      </div>
+      <button id="rec-btn">Record Video</button>
+      <div id="rec-status"></div>
+
+      <div class="section-label">Settings</div>
+
+      <div class="settings-group">
+        <div class="param-name">Behaviour</div>
+        <input type="text" id="behaviour-name" class="name-input" placeholder="set name…">
+        <button id="save-behaviour-btn">Save</button>
+        <select id="behaviour-select" class="set-select"></select>
+        <div class="set-actions">
+          <button id="load-behaviour-btn">Load</button>
+          <button id="del-behaviour-btn">Delete</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="param-name">Text</div>
+        <input type="text" id="text-name" class="name-input" placeholder="set name…">
+        <button id="save-text-btn">Save</button>
+        <select id="text-select" class="set-select"></select>
+        <div class="set-actions">
+          <button id="load-text-btn">Load</button>
+          <button id="del-text-btn">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-col">
+      <div class="section-label" style="margin-top:0;border-top:none;padding-top:0">Glyph Particles</div>
+
+      <div class="param-row">
+        <div class="param-header"><span class="param-name">Font</span></div>
+        <select id="sFontFamily" class="set-select" style="margin-top:3px">
+          <optgroup label="Sans-serif">
+            <option value="Gill Sans" selected>Gill Sans</option>
+            <option value="Helvetica Neue">Helvetica Neue</option>
+            <option value="Futura">Futura</option>
+            <option value="Optima">Optima</option>
+            <option value="Avenir">Avenir</option>
+            <option value="Arial">Arial</option>
+          </optgroup>
+          <optgroup label="Serif">
+            <option value="Georgia">Georgia</option>
+            <option value="Baskerville">Baskerville</option>
+            <option value="Didot">Didot</option>
+            <option value="Palatino">Palatino</option>
+            <option value="Garamond">Garamond</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Bodoni 72">Bodoni 72</option>
+          </optgroup>
+          <optgroup label="Display">
+            <option value="American Typewriter">American Typewriter</option>
+            <option value="Copperplate">Copperplate</option>
+            <option value="Phosphate">Phosphate</option>
+          </optgroup>
+          <optgroup label="Monospace">
+            <option value="Courier New">Courier New</option>
+            <option value="Menlo">Menlo</option>
+            <option value="Monaco">Monaco</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Font Size</span>
+          <span class="param-val" id="vFontPt">48 pt</span>
+        </div>
+        <input type="range" id="sFontPt" min="10" max="400" step="2" value="48">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Particle Size</span>
+          <span class="param-val" id="vCellPx">4 px</span>
+        </div>
+        <input type="range" id="sCellPx" min="1" max="20" step="1" value="4">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Particles</span>
+          <span class="param-val" id="vDensity">156%</span>
+        </div>
+        <input type="range" id="sDensity" min="1" max="200" step="1" value="156">
+        <div id="count-note">— particles</div>
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Particle Speed</span>
+          <span class="param-val" id="vPSpeed">100 px/s</span>
+        </div>
+        <input type="range" id="sPSpeed" min="10" max="600" step="10" value="100">
+      </div>
+
+      <div class="color-row">
+        <label>Particle Color</label>
+        <input type="color" id="sColor" value="#ffffff">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Shape</span>
+          <span class="param-val" id="vRoundness">62%</span>
+        </div>
+        <input type="range" id="sRoundness" min="0" max="100" step="1" value="62">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Outside</span>
+          <span class="param-val" id="vOutside">0%</span>
+        </div>
+        <input type="range" id="sOutside" min="0" max="100" step="1" value="0">
+      </div>
+
+      <div class="section-label">Flocking</div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Perception</span>
+          <span class="param-val" id="vPerception">88 px</span>
+        </div>
+        <input type="range" id="sPerception" min="5" max="120" step="1" value="88">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Separation</span>
+          <span class="param-val" id="vSeparation">4.4</span>
+        </div>
+        <input type="range" id="sSeparation" min="0" max="5" step="0.1" value="4.4">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Alignment</span>
+          <span class="param-val" id="vAlignment">0.3</span>
+        </div>
+        <input type="range" id="sAlignment" min="0" max="5" step="0.1" value="0.3">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Cohesion</span>
+          <span class="param-val" id="vCohesion">0.0</span>
+        </div>
+        <input type="range" id="sCohesion" min="0" max="5" step="0.1" value="0">
+      </div>
+
+      <div class="section-label">Letter Movement</div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Letter Speed</span>
+          <span class="param-val" id="vLSpeed">0 px/s</span>
+        </div>
+        <input type="range" id="sLSpeed" min="0" max="200" step="5" value="0">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Wander Radius</span>
+          <span class="param-val" id="vWander">0 px</span>
+        </div>
+        <input type="range" id="sWander" min="0" max="400" step="10" value="0">
+      </div>
+
+      <div class="param-row">
+        <div class="param-header">
+          <span class="param-name">Letter Repulsion</span>
+          <span class="param-val" id="vRepulsion">0%</span>
+        </div>
+        <input type="range" id="sRepulsion" min="0" max="100" step="1" value="0">
+      </div>
+
+      <button id="rebuild-btn">Rebuild</button>
+    </div>
+
+  </div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+let   ctx    = canvas.getContext('2d');
+const dpr    = window.devicePixelRatio || 1;
+const PANEL_CSS = 320;                                                        // panel width in CSS px
+const W        = canvas.width  = Math.round((window.innerWidth - PANEL_CSS) * dpr);
+const H        = canvas.height = Math.round(window.innerHeight * dpr);
+canvas.style.width  = (window.innerWidth - PANEL_CSS) + 'px';
+canvas.style.height = window.innerHeight + 'px';
+const PANEL_PX = 0;   // canvas starts at panel edge; no offset needed
+const CW       = W;   // full canvas width is usable
+
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+function getTextLines() {
+  return document.getElementById('poem-text').value
+    .split('\n')
+    .map(l => l.replace(/\r/g, ''))   // strip CR just in case
+    .filter(l => l.length > 0);
+}
+
+// ── Params ────────────────────────────────────────────────────────────────────
+const PARAMS = {
+  fontPt:        48,
+  cellPx:        4,
+  density:       1.56,
+  particleSpeed: 100,
+  letterSpeed:   0,
+  wanderRadius:  0,
+  letterRepulsion: 0,
+  fontFamily:    'Gill Sans',
+  outside:       0,    // 0 = fully contained, 1 = freely wanders outside and back
+  roundness:     0.62, // 0 = square, 1 = circle
+  color:         '#ffffff',
+  perception:    88,   // neighbour radius in CSS px
+  separation:    4.4,  // steer away from crowding
+  alignment:     0.3,  // match neighbour velocity
+  cohesion:      0,    // steer toward neighbour centre
+};
+
+let CELL, VMIN, VMAX;
+let letters  = [];
+let _loading = false;
+
+// ── Letter class ──────────────────────────────────────────────────────────────
+// Each letter owns:
+//   - A world position (cx, cy) — the letter centre, moved by word-level wander
+//   - A local pixel mask (letter rendered once, centred at origin in local space)
+//   - Internal particles in local coords that bounce off the mask boundary
+class Letter {
+  constructor(ch, cx, cy, fontStr) {
+    this.ch      = ch;
+    this.cx      = cx;   // world pos (canvas px)
+    this.cy      = cy;
+    this.homeX   = cx;
+    this.homeY   = cy;
+    this.fontStr = fontStr;
+
+    // Word-level wander: target the letter drifts toward
+    this._tx = cx;
+    this._ty = cy;
+    this.isDragged = false;
+    this.wordIndex = 0;
+
+    this.mask      = null;
+    this.maskW     = 0;
+    this.maskH     = 0;
+    this.allCells  = [];
+    this.particles = [];
+  }
+
+  // Build the alpha mask from a fresh offscreen canvas render.
+  // maskW/H are computed generously from fontPx so any glyph fits.
+  buildMask(fontPx) {
+    const pad    = Math.round(14 * dpr);
+    this.maskW   = Math.round(fontPx * 1.25) + pad * 2;
+    this.maskH   = Math.round(fontPx * 1.10) + pad * 2;
+    if (this.maskW % 2) this.maskW++;
+    if (this.maskH % 2) this.maskH++;
+
+    const off  = document.createElement('canvas');
+    off.width  = this.maskW;
+    off.height = this.maskH;
+    const octx = off.getContext('2d');
+    octx.font         = this.fontStr;
+    octx.textAlign    = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillStyle    = '#fff';
+    octx.fillText(this.ch, this.maskW / 2, this.maskH / 2);
+
+    const raw  = octx.getImageData(0, 0, this.maskW, this.maskH).data;
+    this.mask  = new Uint8Array(this.maskW * this.maskH);
+    for (let i = 0; i < this.maskW * this.maskH; i++) {
+      this.mask[i] = raw[i * 4 + 3] > 128 ? 1 : 0;
+    }
+    // Keep the offscreen canvas for clean compositing in the crystallisation transition
+    this.solidCanvas = off;
+
+    // Collect all valid cell centres in local coords (letter centred at 0,0).
+    // Local (lx, ly) → mask (lx + maskW/2, ly + maskH/2).
+    this.allCells = [];
+    const half = CELL / 2;
+    for (let ly = -this.maskH / 2 + half; ly < this.maskH / 2; ly += CELL) {
+      for (let lx = -this.maskW / 2 + half; lx < this.maskW / 2; lx += CELL) {
+        if (this._inside(lx, ly)) this.allCells.push({ x: lx, y: ly });
+      }
+    }
+  }
+
+  _inside(lx, ly) {
+    const xi = Math.round(lx + this.maskW / 2);
+    const yi = Math.round(ly + this.maskH / 2);
+    if (xi < 0 || xi >= this.maskW || yi < 0 || yi >= this.maskH) return false;
+    return this.mask[yi * this.maskW + xi] === 1;
+  }
+
+  buildParticles(density) {
+    const count = Math.max(1, Math.round(this.allCells.length * density));
+    let cells;
+    if (count >= this.allCells.length) {
+      // Fill all cells, then sample with replacement for the remainder
+      cells = [...this.allCells];
+      for (let i = this.allCells.length; i < count; i++) {
+        cells.push(this.allCells[Math.floor(Math.random() * this.allCells.length)]);
+      }
+    } else {
+      // Partial Fisher-Yates shuffle to select `count` cells randomly
+      const idx = this.allCells.map((_, i) => i);
+      for (let i = 0; i < count; i++) {
+        const j = i + Math.floor(Math.random() * (idx.length - i));
+        [idx[i], idx[j]] = [idx[j], idx[i]];
+      }
+      cells = idx.slice(0, count).map(i => this.allCells[i]);
+    }
+
+    this.particles = cells.map(({ x, y }) => {
+      const speed = VMIN + Math.random() * (VMAX - VMIN);
+      const angle = Math.random() * Math.PI * 2;
+      return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, gx: x, gy: y };
+    });
+  }
+
+  // Step internal particles using Reynolds Boids flocking (separation, alignment,
+  // cohesion) plus wall avoidance. Hard-bounce is kept as a position fallback.
+  stepParticles(dt) {
+    const ps        = this.particles;
+    const n         = ps.length;
+    const perc      = PARAMS.perception * dpr;
+    const perc2     = perc * perc;
+    const sepR2     = (perc * 0.5) * (perc * 0.5);  // separation fires within half perception
+    const wallD     = CELL * 2.5;                    // wall-probe distance (canvas px)
+    const maxSpd    = VMAX;
+    const minSpd    = VMIN * 0.3;
+    // solidifyT: 0 = pure flocking (cellPx≥3), 1 = fully crystallised (cellPx≤2)
+    // BASELINE: unruliness blocked — hardcoded to 0 for comparison
+    const solidifyT = Math.min(1, Math.max(0, 3 - PARAMS.cellPx));
+
+    for (let i = 0; i < n; i++) {
+      const pi = ps[i];
+
+      let sx = 0, sy = 0;          // separation accumulator
+      let ax = 0, ay = 0;          // alignment accumulator
+      let cx = 0, cy = 0;          // cohesion accumulator
+      let nc = 0;                  // neighbour count
+
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const pj = ps[j];
+        const dx = pj.x - pi.x,  dy = pj.y - pi.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > perc2) continue;
+
+        // Separation: push away, strongest when very close
+        if (d2 < sepR2 && d2 > 0) {
+          sx -= dx / d2;
+          sy -= dy / d2;
+        }
+        ax += pj.vx;  ay += pj.vy;
+        cx += pj.x;   cy += pj.y;
+        nc++;
+      }
+
+      let fx = 0, fy = 0;
+
+      if (nc > 0) {
+        // Separation: steer toward desired direction (away from crowd)
+        const sm = Math.hypot(sx, sy);
+        if (sm > 0) {
+          fx += (sx / sm * maxSpd - pi.vx) * PARAMS.separation;
+          fy += (sy / sm * maxSpd - pi.vy) * PARAMS.separation;
+        }
+
+        // Alignment: steer toward average neighbour heading
+        const am = Math.hypot(ax, ay) || 1;
+        fx += (ax / am * maxSpd - pi.vx) * PARAMS.alignment;
+        fy += (ay / am * maxSpd - pi.vy) * PARAMS.alignment;
+
+        // Cohesion: steer toward centre of mass of neighbours
+        const tcx = cx / nc - pi.x,  tcy = cy / nc - pi.y;
+        const tm  = Math.hypot(tcx, tcy) || 1;
+        fx += (tcx / tm * maxSpd - pi.vx) * PARAMS.cohesion;
+        fy += (tcy / tm * maxSpd - pi.vy) * PARAMS.cohesion;
+      }
+
+      // Crystallisation: scale flocking down and snap toward birth grid position
+      if (solidifyT > 0) {
+        fx *= (1 - solidifyT);
+        fy *= (1 - solidifyT);
+        fx += (pi.gx - pi.x) * solidifyT * 20;
+        fy += (pi.gy - pi.y) * solidifyT * 20;
+      }
+
+      // Escaped particles with outside=0: kill flocking so return force dominates
+      if (PARAMS.outside === 0 && !this._inside(pi.x, pi.y)) { fx = 0; fy = 0; }
+
+      // Wall avoidance: probe 8 directions; steer away from any outside the mask
+      // Outside weakens this so particles can drift across the boundary
+      const wallStrength = 2.0 * (1 - PARAMS.outside);
+      if (wallStrength > 0) {
+        for (let k = 0; k < 8; k++) {
+          const a  = k * Math.PI * 0.25;
+          const wx = pi.x + Math.cos(a) * wallD;
+          const wy = pi.y + Math.sin(a) * wallD;
+          if (!this._inside(wx, wy)) {
+            fx += (-Math.cos(a) * maxSpd - pi.vx) * wallStrength;
+            fy += (-Math.sin(a) * maxSpd - pi.vy) * wallStrength;
+          }
+        }
+      }
+
+      // Apply accumulated force as acceleration
+      pi.vx += fx * dt;
+      pi.vy += fy * dt;
+
+      // Speed clamping: scale limits toward zero as solidifyT rises so particles can settle
+      const effMaxSpd = maxSpd * Math.max(0.02, 1 - solidifyT * 0.98);
+      const effMinSpd = minSpd * (1 - solidifyT);
+      const spd = Math.hypot(pi.vx, pi.vy);
+      if (spd > effMaxSpd) {
+        pi.vx = pi.vx / spd * effMaxSpd;
+        pi.vy = pi.vy / spd * effMaxSpd;
+      } else if (effMinSpd > 0 && spd < effMinSpd && spd > 0) {
+        pi.vx = pi.vx / spd * effMinSpd;
+        pi.vy = pi.vy / spd * effMinSpd;
+      } else if (spd === 0 && effMinSpd > 0) {
+        const a = Math.random() * Math.PI * 2;
+        pi.vx = Math.cos(a) * effMinSpd;
+        pi.vy = Math.sin(a) * effMinSpd;
+      }
+
+      // Move
+      const nx = pi.x + pi.vx * dt;
+      const ny = pi.y + pi.vy * dt;
+      if (this._inside(nx, ny)) {
+        // Normal move — destination is inside
+        pi.x = nx;
+        pi.y = ny;
+      } else if (!this._inside(pi.x, pi.y) || PARAMS.outside > 0) {
+        // Already outside, or Outside allows crossing — move and apply return force.
+        // Return force is always present (particles wander and come back);
+        // Outside scales it down so they drift further before returning.
+        pi.x = nx;
+        pi.y = ny;
+        if (!this._inside(pi.x, pi.y)) {
+          // Aim toward birth position (always inside the ink), not glyph centre.
+          // This prevents counter particles (inside 'o', arch of 'h', etc.)
+          // from being pulled into the counter hole and parking there.
+          const dx = pi.x - pi.gx, dy = pi.y - pi.gy;
+          const od = Math.hypot(dx, dy);
+          if (od > 0) {
+            const rx  = dx / od,  ry = dy / od;
+            // blend=1 when fully contained; at outside=1 a gentle 15% return force remains
+            // so particles always wander back rather than escape permanently
+            const blend = 1 - PARAMS.outside * 0.85;
+            const vOut = pi.vx * rx + pi.vy * ry;
+            if (vOut > 0) {
+              pi.vx -= rx * vOut * blend;
+              pi.vy -= ry * vOut * blend;
+            }
+            pi.vx -= rx * maxSpd * blend * 3.0 * dt;
+            pi.vy -= ry * maxSpd * blend * 3.0 * dt;
+          }
+        }
+      } else {
+        // outside=0 and particle inside: hard bounce to preserve natural burbling
+        if      (this._inside(pi.x, ny)){ pi.y = ny; pi.vx = -pi.vx; }
+        else if (this._inside(nx, pi.y)){ pi.x = nx; pi.vy = -pi.vy; }
+        else                            { pi.vx = -pi.vx; pi.vy = -pi.vy; }
+      }
+    }
+  }
+
+  // Move this letter toward its wander target; bounce off canvas walls.
+  stepLetter(dt) {
+    if (this.isDragged) return;
+    const speed  = PARAMS.letterSpeed  * dpr;
+    const wander = PARAMS.wanderRadius * dpr;
+    const hw     = this.maskW / 2;
+    const hh     = this.maskH / 2;
+
+    const dx = this._tx - this.cx;
+    const dy = this._ty - this.cy;
+    const d  = Math.hypot(dx, dy);
+
+    if (d < speed * dt + 1) {
+      // Reached target — pick a new random one near home, clamped in canvas
+      this._tx = clamp(this.homeX + (Math.random() * 2 - 1) * wander, PANEL_PX + hw, W - hw);
+      this._ty = clamp(this.homeY + (Math.random() * 2 - 1) * wander, hh, H - hh);
+    } else {
+      this.cx += dx / d * speed * dt;
+      this.cy += dy / d * speed * dt;
+    }
+
+    // Hard clamp to canvas
+    this.cx = clamp(this.cx, hw, W - hw);
+    this.cy = clamp(this.cy, hh, H - hh);
+  }
+
+  draw(cell) {
+    const half = cell / 2;
+    ctx.save();
+    ctx.translate(this.cx, this.cy);
+    ctx.font         = this.fontStr;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (PARAMS.cellPx <= 2) {
+      // Solid glyph — clean text render at small particle sizes (also fixes perf crawl)
+      ctx.fillStyle = PARAMS.color;
+      ctx.fillText(this.ch, 0, 0);
+    } else {
+      ctx.fillStyle = PARAMS.color;
+      const r = half * PARAMS.roundness;
+
+      const drawShape = (px, py) => {
+        if (r <= 0) {
+          ctx.fillRect(px - half, py - half, cell, cell);
+        } else if (PARAMS.roundness >= 1) {
+          ctx.beginPath(); ctx.arc(px, py, half, 0, Math.PI * 2); ctx.fill();
+        } else {
+          ctx.beginPath(); ctx.roundRect(px - half, py - half, cell, cell, r); ctx.fill();
+        }
+      };
+
+      // Actual particles
+      for (const p of this.particles) drawShape(p.x, p.y);
+    }
+
+    ctx.restore();
+  }
+}
+
+// ── Letter-letter soft collision ──────────────────────────────────────────────
+// When two letters' centres are closer than their combined half-widths, push apart.
+function resolveCollisions() {
+  for (let i = 0; i < letters.length; i++) {
+    for (let j = i + 1; j < letters.length; j++) {
+      const a    = letters[i];
+      const b    = letters[j];
+      const dx   = b.cx - a.cx;
+      const dy   = b.cy - a.cy;
+      const dist = Math.hypot(dx, dy);
+      const min  = (a.maskW + b.maskW) * 0.28;  // ~visual half-widths combined
+      if (dist < min && dist > 0.01) {
+        const push = (min - dist) / 2 * PARAMS.letterRepulsion;
+        a.cx -= dx / dist * push;
+        a.cy -= dy / dist * push;
+        b.cx += dx / dist * push;
+        b.cy += dy / dist * push;
+      }
+    }
+  }
+}
+
+// ── Build / rebuild ───────────────────────────────────────────────────────────
+function fullRebuild() {
+  if (_loading) return;
+  const fontPx  = Math.round(PARAMS.fontPt * (4 / 3) * dpr);
+  CELL = Math.round(PARAMS.cellPx * dpr);
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+
+  const fontStr = `bold ${fontPx}px "${PARAMS.fontFamily}", serif`;
+
+  // Save current world positions so letters don't jump on param changes
+  const saved = letters.map(l => ({ cx: l.cx, cy: l.cy, tx: l._tx, ty: l._ty }));
+
+  // Measurement canvas
+  const tmp  = document.createElement('canvas');
+  tmp.width  = W;  tmp.height = H;
+  const tctx = tmp.getContext('2d');
+  tctx.font  = fontStr;
+
+  const lines      = getTextLines();
+  const lineHeight = Math.round(fontPx * 1.2);
+  const totalH     = lines.length * lineHeight;
+  const startY     = (H - totalH) / 2 + lineHeight / 2;
+
+  const newLetters = [];
+  let savedIdx  = 0;
+  let wordIndex = 0;
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    const cy   = startY + li * lineHeight;
+
+    // Measure each character's advance; use full-line width for centering
+    const advances    = [...line].map(ch => tctx.measureText(ch).width);
+    const totalWidth  = advances.reduce((a, b) => a + b, 0);
+    let x = PANEL_PX + (CW - totalWidth) / 2;
+    let inWord = false;
+
+    for (let ci = 0; ci < line.length; ci++) {
+      const ch  = line[ci];
+      const adv = advances[ci];
+      const cx  = x + adv / 2;
+      x += adv;
+
+      if (ch === ' ') {
+        if (inWord) { wordIndex++; inWord = false; }
+        continue;   // spaces contribute advance width but no Letter
+      }
+      inWord = true;
+
+      const letter = new Letter(ch, cx, cy, fontStr);
+      letter.wordIndex = wordIndex;
+
+      // Restore current position if one was saved for this slot
+      if (saved[savedIdx]) {
+        letter.cx  = saved[savedIdx].cx;
+        letter.cy  = saved[savedIdx].cy;
+        letter._tx = saved[savedIdx].tx;
+        letter._ty = saved[savedIdx].ty;
+      }
+      savedIdx++;
+
+      letter.buildMask(fontPx);
+      letter.buildParticles(PARAMS.density);
+      newLetters.push(letter);
+    }
+    if (inWord) wordIndex++;  // end of line ends the current word
+  }
+
+  letters = newLetters;
+  updateCountNote();
+}
+
+function rebuildParticles() {
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+  for (const l of letters) l.buildParticles(PARAMS.density);
+  updateCountNote();
+}
+
+function applyParticleSpeed() {
+  VMIN = PARAMS.particleSpeed * 0.5 * dpr;
+  VMAX = PARAMS.particleSpeed * 1.5 * dpr;
+  for (const l of letters) {
+    for (const p of l.particles) {
+      const spd = Math.hypot(p.vx, p.vy) || 1;
+      const tgt = VMIN + Math.random() * (VMAX - VMIN);
+      p.vx = p.vx / spd * tgt;
+      p.vy = p.vy / spd * tgt;
+    }
+  }
+}
+
+function updateCountNote() {
+  const total = letters.reduce((s, l) => s + l.particles.length, 0);
+  document.getElementById('count-note').textContent =
+    `${total.toLocaleString()} particles total`;
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+let last   = null;
+let frozen = false;
+
+document.getElementById('freeze-btn').addEventListener('click', () => {
+  frozen = !frozen;
+  const btn = document.getElementById('freeze-btn');
+  btn.textContent = frozen ? 'Unfreeze' : 'Freeze';
+  btn.classList.toggle('frozen', frozen);
+});
+
+function loop(ts) {
+  if (last === null) last = ts;
+  const dt = Math.min((ts - last) / 1000, 0.05);
+  last = ts;
+
+  if (!frozen) {
+    for (const l of letters) {
+      l.stepLetter(dt);
+      if (PARAMS.cellPx > 2) l.stepParticles(dt);
+    }
+    resolveCollisions();
+  }
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  for (const l of letters) l.draw(CELL);
+
+  requestAnimationFrame(loop);
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function wire(id, valId, fmt, onChange) {
+  const s = document.getElementById(id);
+  const l = document.getElementById(valId);
+  s.addEventListener('input', () => {
+    l.textContent = fmt(parseFloat(s.value));
+    onChange(parseFloat(s.value));
+  });
+}
+
+wire('sFontPt',  'vFontPt',  v => `${v} pt`,   v => { PARAMS.fontPt        = v; fullRebuild(); });
+wire('sCellPx',  'vCellPx',  v => `${v} px`,   v => { PARAMS.cellPx        = v; fullRebuild(); });
+wire('sDensity', 'vDensity', v => `${v}%`,      v => { PARAMS.density       = v / 100; rebuildParticles(); });
+wire('sPSpeed',  'vPSpeed',  v => `${v} px/s`,  v => { PARAMS.particleSpeed = v; applyParticleSpeed(); });
+wire('sPerception', 'vPerception', v => `${v} px`, v => { PARAMS.perception = v; });
+wire('sSeparation', 'vSeparation', v => v.toFixed(1), v => { PARAMS.separation = v; });
+wire('sAlignment',  'vAlignment',  v => v.toFixed(1), v => { PARAMS.alignment  = v; });
+wire('sCohesion',   'vCohesion',   v => v.toFixed(1), v => { PARAMS.cohesion   = v; });
+
+wire('sLSpeed',    'vLSpeed',    v => `${v} px/s`, v => { PARAMS.letterSpeed     = v; });
+wire('sWander',    'vWander',    v => `${v} px`,  v => { PARAMS.wanderRadius    = v; });
+wire('sRepulsion', 'vRepulsion', v => `${v}%`,    v => { PARAMS.letterRepulsion = v / 100; });
+
+document.getElementById('sFontFamily').addEventListener('change', e => {
+  PARAMS.fontFamily = e.target.value; fullRebuild();
+});
+document.getElementById('apply-btn').addEventListener('click', fullRebuild);
+document.getElementById('sColor').addEventListener('input', e => { PARAMS.color = e.target.value; });
+document.getElementById('rebuild-btn').addEventListener('click', fullRebuild);
+
+wire('sRoundness', 'vRoundness', v => {
+  if (v <= 0)   return 'Square';
+  if (v >= 100) return 'Circle';
+  return `${v}%`;
+}, v => { PARAMS.roundness = v / 100; });
+
+wire('sOutside', 'vOutside', v => `${v}%`, v => { PARAMS.outside = v / 100; });
+
+// ── Drag to move glyphs (Alt = grab whole word) ───────────────────────────────
+// dragGroup: [{ letter, offX, offY }, ...]
+let dragGroup = [];
+
+function canvasPt(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left)  * dpr,
+    y: (e.clientY - rect.top)   * dpr,
+  };
+}
+
+function hitTest(x, y) {
+  for (let i = letters.length - 1; i >= 0; i--) {
+    const l = letters[i];
+    if (Math.abs(x - l.cx) < l.maskW / 2 &&
+        Math.abs(y - l.cy) < l.maskH / 2) return l;
+  }
+  return null;
+}
+
+function releaseDragGroup() {
+  for (const d of dragGroup) {
+    d.letter.homeX   = d.letter.cx;
+    d.letter.homeY   = d.letter.cy;
+    d.letter._tx     = d.letter.cx;
+    d.letter._ty     = d.letter.cy;
+    d.letter.isDragged = false;
+  }
+  dragGroup = [];
+  canvas.style.cursor = 'default';
+}
+
+canvas.style.cursor = 'default';
+
+canvas.addEventListener('contextmenu', e => { if (e.ctrlKey) e.preventDefault(); });
+
+canvas.addEventListener('pointerdown', e => {
+  const { x, y } = canvasPt(e);
+
+  // Ctrl + click (any button) → grab all letters
+  if (e.ctrlKey) {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    pushUndo();
+    dragGroup = letters.map(l => ({ letter: l, offX: x - l.cx, offY: y - l.cy }));
+    dragGroup.forEach(d => d.letter.isDragged = true);
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  const hit = hitTest(x, y);
+  if (!hit) return;
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+
+  pushUndo();
+
+  const targets = e.altKey
+    ? letters.filter(l => l.wordIndex === hit.wordIndex)
+    : [hit];
+
+  dragGroup = targets.map(l => ({ letter: l, offX: x - l.cx, offY: y - l.cy }));
+  dragGroup.forEach(d => d.letter.isDragged = true);
+  canvas.style.cursor = 'grabbing';
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (dragGroup.length) {
+    e.preventDefault();
+    const { x, y } = canvasPt(e);
+    for (const d of dragGroup) {
+      d.letter.cx  = x - d.offX;
+      d.letter.cy  = y - d.offY;
+      d.letter._tx = d.letter.cx;
+      d.letter._ty = d.letter.cy;
+    }
+  } else {
+    const { x, y } = canvasPt(e);
+    canvas.style.cursor = hitTest(x, y) ? 'grab' : 'default';
+  }
+});
+
+canvas.addEventListener('pointerup',     () => releaseDragGroup());
+canvas.addEventListener('pointercancel', () => releaseDragGroup());
+
+// ── Undo (Cmd+Z / Ctrl+Z) ─────────────────────────────────────────────────────
+const undoStack  = [];
+const MAX_UNDO   = 20;
+
+function snapshotPositions() {
+  return letters.map(l => ({ cx: l.cx, cy: l.cy, homeX: l.homeX, homeY: l.homeY, _tx: l._tx, _ty: l._ty }));
+}
+
+function pushUndo() {
+  undoStack.push(snapshotPositions());
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  const snap = undoStack.pop();
+  snap.forEach((s, i) => {
+    if (!letters[i]) return;
+    letters[i].cx    = s.cx;
+    letters[i].cy    = s.cy;
+    letters[i].homeX = s.homeX;
+    letters[i].homeY = s.homeY;
+    letters[i]._tx   = s._tx;
+    letters[i]._ty   = s._ty;
+  });
+}
+
+let spaceHeld = false;
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+    e.preventDefault();
+    undo();
+  }
+  if (e.code === 'Space' && !e.target.matches('textarea, input')) {
+    e.preventDefault();
+    spaceHeld = true;
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space') spaceHeld = false;
+});
+
+// ── Spacebar + wheel → font size ──────────────────────────────────────────────
+let _fontSizeTimer = null;
+document.addEventListener('wheel', e => {
+  if (!spaceHeld) return;
+  e.preventDefault();
+  const delta  = e.deltaY > 0 ? -2 : 2;
+  const newVal = Math.max(10, Math.min(400, PARAMS.fontPt + delta));
+  if (newVal === PARAMS.fontPt) return;
+  PARAMS.fontPt = newVal;
+  document.getElementById('sFontPt').value           = newVal;
+  document.getElementById('vFontPt').textContent     = newVal + ' pt';
+  clearTimeout(_fontSizeTimer);
+  _fontSizeTimer = setTimeout(fullRebuild, 150);
+}, { passive: false });
+
+// ── PNG export (600 DPI) ───────────────────────────────────────────────────────
+// Scale factor: 600 DPI target ÷ (96 CSS px/in × device pixel ratio)
+// This maps the current canvas — sized in physical pixels — up to print resolution.
+document.getElementById('export-btn').addEventListener('click', () => {
+  const transparent  = document.getElementById('ckTransparent').checked;
+  const printScale   = 600 / (96 * dpr);
+  const printW       = Math.round(W * printScale);
+  const printH       = Math.round(H * printScale);
+
+  const off  = document.createElement('canvas');
+  off.width  = printW;
+  off.height = printH;
+
+  const saved = ctx;
+  ctx = off.getContext('2d');
+  ctx.scale(printScale, printScale);
+
+  if (!transparent) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+  }
+  for (const l of letters) l.draw(CELL);
+
+  ctx = saved;
+
+  const link    = document.createElement('a');
+  link.download = 'particles-600dpi.png';
+  link.href     = off.toDataURL('image/png');
+  link.click();
+});
+
+// ── Video Recording ────────────────────────────────────────────────────────────
+wire('sRecFps', 'vRecFps', v => `${v} fps`, () => {});
+wire('sRecDur', 'vRecDur', v => v === 0 ? 'manual' : `${v} s`, () => {});
+
+{
+  let mediaRecorder = null;
+  let recChunks     = [];
+  let recTimer      = null;
+
+  const recBtn    = document.getElementById('rec-btn');
+  const recStatus = document.getElementById('rec-status');
+
+  function startRecording() {
+    const fps    = parseInt(document.getElementById('sRecFps').value);
+    const durSec = parseInt(document.getElementById('sRecDur').value);
+    const stream = canvas.captureStream(fps);
+
+    const mimeType = [
+      'video/mp4;codecs=avc1',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+
+    recChunks     = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recChunks, { type: mimeType });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'particles.' + (mimeType.startsWith('video/mp4') ? 'mp4' : 'webm');
+      a.click();
+      URL.revokeObjectURL(url);
+      recBtn.textContent = 'Record Video';
+      recBtn.classList.remove('recording');
+      recStatus.textContent = '';
+    };
+
+    mediaRecorder.start(100);   // collect data in 100ms chunks
+    recBtn.textContent = 'Stop Recording';
+    recBtn.classList.add('recording');
+
+    let elapsed = 0;
+    recStatus.textContent = durSec > 0 ? `Recording… 0/${durSec}s` : 'Recording… 0s';
+    recTimer = setInterval(() => {
+      elapsed++;
+      recStatus.textContent = durSec > 0
+        ? `Recording… ${elapsed}/${durSec}s`
+        : `Recording… ${elapsed}s`;
+      if (durSec > 0 && elapsed >= durSec) stopRecording();
+    }, 1000);
+  }
+
+  function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    clearInterval(recTimer);
+    recStatus.textContent = 'Encoding…';
+    mediaRecorder.stop();
+  }
+
+  recBtn.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+}
+
+// ── Named Behaviour Sets ───────────────────────────────────────────────────────
+const BEHAVIOUR_SETS_KEY  = 'poemm-mich-05-Behaviour-Sets';
+const LAST_BEHAVIOUR_KEY  = 'poemm-mich-05-last-behaviour';
+const SLIDER_IDS          = ['sFontPt','sCellPx','sDensity','sPSpeed','sRoundness','sOutside',
+                              'sPerception','sSeparation','sAlignment','sCohesion',
+                              'sLSpeed','sWander','sRepulsion'];
+
+function getBehaviourSets() {
+  return JSON.parse(localStorage.getItem(BEHAVIOUR_SETS_KEY) || '{}');
+}
+
+function refreshBehaviourSelect(selectName) {
+  const sel   = document.getElementById('behaviour-select');
+  const names = Object.keys(getBehaviourSets()).sort();
+  sel.innerHTML = '';
+  if (!names.length) {
+    const o = document.createElement('option');
+    o.value = ''; o.disabled = true; o.textContent = '— none saved —';
+    sel.appendChild(o);
+  } else {
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (n === selectName) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+}
+
+function applyBehaviourData(data) {
+  _loading = true;
+  for (const id of SLIDER_IDS) {
+    if (data[id] === undefined) continue;
+    const el = document.getElementById(id);
+    el.value = data[id];
+    el.dispatchEvent(new Event('input'));
+  }
+  _loading = false;
+  if (data.color)      { document.getElementById('sColor').value = data.color; PARAMS.color = data.color; }
+  if (data.fontFamily) { document.getElementById('sFontFamily').value = data.fontFamily; PARAMS.fontFamily = data.fontFamily; }
+}
+
+document.getElementById('save-behaviour-btn').addEventListener('click', () => {
+  const name = document.getElementById('behaviour-name').value.trim();
+  if (!name) return;
+  const sets = getBehaviourSets();
+  const data = {};
+  for (const id of SLIDER_IDS) data[id] = document.getElementById(id).value;
+  data.color      = document.getElementById('sColor').value;
+  data.fontFamily = document.getElementById('sFontFamily').value;
+  sets[name] = data;
+  localStorage.setItem(BEHAVIOUR_SETS_KEY, JSON.stringify(sets));
+  localStorage.setItem(LAST_BEHAVIOUR_KEY, name);
+  refreshBehaviourSelect(name);
+  const btn = document.getElementById('save-behaviour-btn');
+  btn.textContent = 'Saved!';
+  setTimeout(() => btn.textContent = 'Save', 1200);
+});
+
+document.getElementById('load-behaviour-btn').addEventListener('click', () => {
+  const name = document.getElementById('behaviour-select').value;
+  if (!name) return;
+  const data = getBehaviourSets()[name];
+  if (!data) return;
+  applyBehaviourData(data);
+  document.getElementById('behaviour-name').value = name;
+  localStorage.setItem(LAST_BEHAVIOUR_KEY, name);
+});
+
+document.getElementById('del-behaviour-btn').addEventListener('click', () => {
+  const name = document.getElementById('behaviour-select').value;
+  if (!name) return;
+  const sets = getBehaviourSets();
+  delete sets[name];
+  localStorage.setItem(BEHAVIOUR_SETS_KEY, JSON.stringify(sets));
+  if (localStorage.getItem(LAST_BEHAVIOUR_KEY) === name) localStorage.removeItem(LAST_BEHAVIOUR_KEY);
+  refreshBehaviourSelect();
+});
+
+// ── Named Text Sets ────────────────────────────────────────────────────────────
+const TEXT_SETS_KEY  = 'poemm-mich-05-Text-Sets';
+const LAST_TEXT_KEY  = 'poemm-mich-05-last-text';
+
+function getTextSets() {
+  return JSON.parse(localStorage.getItem(TEXT_SETS_KEY) || '{}');
+}
+
+function refreshTextSelect(selectName) {
+  const sel   = document.getElementById('text-select');
+  const names = Object.keys(getTextSets()).sort();
+  sel.innerHTML = '';
+  if (!names.length) {
+    const o = document.createElement('option');
+    o.value = ''; o.disabled = true; o.textContent = '— none saved —';
+    sel.appendChild(o);
+  } else {
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (n === selectName) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+}
+
+function applyTextPositions(positions) {
+  positions.forEach((pos, i) => {
+    if (!letters[i]) return;
+    letters[i].cx    = pos.cx;
+    letters[i].cy    = pos.cy;
+    letters[i].homeX = pos.homeX;
+    letters[i].homeY = pos.homeY;
+    letters[i]._tx   = pos.cx;
+    letters[i]._ty   = pos.cy;
+  });
+}
+
+document.getElementById('save-text-btn').addEventListener('click', () => {
+  const name = document.getElementById('text-name').value.trim();
+  if (!name) return;
+  const sets = getTextSets();
+  sets[name] = {
+    text:      document.getElementById('poem-text').value,
+    positions: letters.map(l => ({ cx: l.cx, cy: l.cy, homeX: l.homeX, homeY: l.homeY })),
+  };
+  localStorage.setItem(TEXT_SETS_KEY, JSON.stringify(sets));
+  localStorage.setItem(LAST_TEXT_KEY, name);
+  refreshTextSelect(name);
+  const btn = document.getElementById('save-text-btn');
+  btn.textContent = 'Saved!';
+  setTimeout(() => btn.textContent = 'Save', 1200);
+});
+
+document.getElementById('load-text-btn').addEventListener('click', () => {
+  const name = document.getElementById('text-select').value;
+  if (!name) return;
+  const data = getTextSets()[name];
+  if (!data) return;
+  if (data.text) document.getElementById('poem-text').value = data.text;
+  document.getElementById('text-name').value = name;
+  localStorage.setItem(LAST_TEXT_KEY, name);
+  fullRebuild();
+  if (data.positions) applyTextPositions(data.positions);
+});
+
+document.getElementById('del-text-btn').addEventListener('click', () => {
+  const name = document.getElementById('text-select').value;
+  if (!name) return;
+  const sets = getTextSets();
+  delete sets[name];
+  localStorage.setItem(TEXT_SETS_KEY, JSON.stringify(sets));
+  if (localStorage.getItem(LAST_TEXT_KEY) === name) localStorage.removeItem(LAST_TEXT_KEY);
+  refreshTextSelect();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+const bootLastText      = localStorage.getItem(LAST_TEXT_KEY);
+const bootLastBehaviour = localStorage.getItem(LAST_BEHAVIOUR_KEY);
+let   bootTextData      = null;
+
+if (bootLastText) {
+  const data = getTextSets()[bootLastText];
+  if (data) {
+    bootTextData = data;
+    if (data.text) document.getElementById('poem-text').value = data.text;
+    document.getElementById('text-name').value = bootLastText;
+  }
+}
+if (bootLastBehaviour) {
+  const data = getBehaviourSets()[bootLastBehaviour];
+  if (data) {
+    applyBehaviourData(data);
+    document.getElementById('behaviour-name').value = bootLastBehaviour;
+  }
+}
+refreshBehaviourSelect(bootLastBehaviour);
+refreshTextSelect(bootLastText);
+fullRebuild();
+if (bootTextData && bootTextData.positions) applyTextPositions(bootTextData.positions);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

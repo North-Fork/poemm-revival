@@ -1,0 +1,540 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComplexType Scene Graph (Browser Canvas)",
+  "type": "object",
+  "required": [
+    "version",
+    "globalEnvironment",
+    "document",
+    "eventSystem"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "globalEnvironment": {
+      "type": "object",
+      "required": [
+        "timeSystem",
+        "inputSystem",
+        "externalDataSources"
+      ],
+      "properties": {
+        "timeSystem": {
+          "type": "object",
+          "required": [
+            "time",
+            "deltaTime",
+            "mode"
+          ],
+          "properties": {
+            "time": {
+              "type": "number"
+            },
+            "deltaTime": {
+              "type": "number"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "variable",
+                "fixed"
+              ]
+            },
+            "fixedDelta": {
+              "type": "number"
+            },
+            "tickRate": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "inputSystem": {
+          "type": "object",
+          "required": [
+            "pointer",
+            "keyboard"
+          ],
+          "properties": {
+            "pointer": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "capture": {
+                  "type": "boolean"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "keyboard": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "physicsEngine": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "solver": {
+              "type": "string",
+              "enum": [
+                "verlet",
+                "euler",
+                "rk4",
+                "custom"
+              ]
+            },
+            "gravity": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "iterations": {
+              "type": "integer"
+            },
+            "damping": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "externalDataSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "uri": {
+                "type": "string"
+              },
+              "pollInterval": {
+                "type": "number"
+              },
+              "mapping": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "required": [
+        "layoutManager",
+        "renderingSurface",
+        "textBlocks"
+      ],
+      "properties": {
+        "layoutManager": {
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "flow",
+                "grid",
+                "freeform"
+              ]
+            },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "renderingSurface": {
+          "type": "object",
+          "required": [
+            "type",
+            "width",
+            "height",
+            "hitTest"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "canvas2d",
+                "webgl"
+              ]
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "dpi": {
+              "type": "number"
+            },
+            "devicePixelRatio": {
+              "type": "number"
+            },
+            "contextAttributes": {
+              "type": "object",
+              "properties": {
+                "alpha": {
+                  "type": "boolean"
+                },
+                "desynchronized": {
+                  "type": "boolean"
+                },
+                "willReadFrequently": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "hitTest": {
+              "type": "object",
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "geometry",
+                    "pixel",
+                    "hybrid"
+                  ]
+                },
+                "pixelTolerance": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "textBlocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "lines"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "transform": {
+                "$ref": "#/$defs/transform"
+              },
+              "style": {
+                "$ref": "#/$defs/textStyle"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "glyphs"
+                  ],
+                  "properties": {
+                    "glyphs": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/glyphNode"
+                      }
+                    },
+                    "interGlyphRelations": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "eventSystem": {
+      "type": "object",
+      "required": [
+        "queues"
+      ],
+      "properties": {
+        "queues": {
+          "type": "object",
+          "required": [
+            "userInput",
+            "timeStep",
+            "externalData",
+            "network"
+          ],
+          "properties": {
+            "userInput": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              }
+            },
+            "timeStep": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              }
+            },
+            "externalData": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              }
+            },
+            "network": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "transform": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "scale": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "textStyle": {
+      "type": "object",
+      "properties": {
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontRef": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "tracking": {
+          "type": "number"
+        },
+        "leading": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "glyphNode": {
+      "type": "object",
+      "required": [
+        "codepoint",
+        "components"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "codepoint": {
+          "type": "integer"
+        },
+        "transform": {
+          "$ref": "#/$defs/transform"
+        },
+        "components": {
+          "type": "object",
+          "required": [
+            "geometry",
+            "material"
+          ],
+          "properties": {
+            "geometry": {
+              "$ref": "#/$defs/geometryComponent"
+            },
+            "material": {
+              "$ref": "#/$defs/materialComponent"
+            },
+            "dynamics": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "interaction": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "dataBinding": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "stateMachine": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "geometryComponent": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "particles",
+            "strokes",
+            "outline2d",
+            "bitmap",
+            "custom"
+          ]
+        },
+        "data": {
+          "type": "object"
+        },
+        "bounds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "materialComponent": {
+      "type": "object",
+      "properties": {
+        "fill": {
+          "type": "string"
+        },
+        "stroke": {
+          "type": "string"
+        },
+        "strokeWidth": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "blendMode": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "type",
+        "timestamp"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

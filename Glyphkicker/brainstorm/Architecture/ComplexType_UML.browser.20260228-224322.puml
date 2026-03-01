@@ -1,0 +1,87 @@
+@startuml
+title ComplexType (Browser Canvas): Modules + Runtime — refreshed 2026-02-28T22:43:22
+
+skinparam shadowing false
+skinparam linetype ortho
+
+package "CTF Package" {
+  class FontInfo
+  class CharMap
+  interface Module
+  class GeometryParticles
+  class GeometryStrokes
+  class Dynamics
+  class Interaction
+  class DataBinding
+  class RenderingControl
+  Module <|.. GeometryParticles
+  Module <|.. GeometryStrokes
+  Module <|.. Dynamics
+  Module <|.. Interaction
+  Module <|.. DataBinding
+  Module <|.. RenderingControl
+}
+
+package "Browser Runtime" {
+  class SceneGraph
+  class GlobalEnvironment
+  class TimeSystem
+  class InputSystem
+  class PhysicsEngine
+  class ExternalDataSources
+  class Document
+  class LayoutManager
+  class RenderingSurface
+  class HitTestConfig
+  class Canvas2DBackend
+  class WebGLBackend
+  class TextBlock
+  class Line
+  class GlyphNode
+  class Components
+  class GeometryComponent
+  class MaterialComponent
+  class DynamicsComponent
+  class InteractionComponent
+  class DataBindingComponent
+  class EventSystem
+
+  SceneGraph o-- GlobalEnvironment
+  GlobalEnvironment o-- TimeSystem
+  GlobalEnvironment o-- InputSystem
+  GlobalEnvironment o-- PhysicsEngine : optional
+  GlobalEnvironment o-- ExternalDataSources
+
+  SceneGraph o-- Document
+  Document o-- LayoutManager
+  Document o-- RenderingSurface
+  RenderingSurface o-- HitTestConfig
+  RenderingSurface o-- Canvas2DBackend : canvas2d
+  RenderingSurface o-- WebGLBackend : webgl (optional)
+
+  Document o-- TextBlock
+  TextBlock o-- Line
+  Line o-- GlyphNode
+
+  GlyphNode o-- Components
+  Components o-- GeometryComponent
+  Components o-- MaterialComponent
+  Components o-- DynamicsComponent : optional
+  Components o-- InteractionComponent : optional
+  Components o-- DataBindingComponent : optional
+
+  SceneGraph o-- EventSystem
+}
+
+GeometryParticles ..> GeometryComponent : type=particles
+GeometryStrokes ..> GeometryComponent : type=strokes
+Dynamics ..> DynamicsComponent
+Interaction ..> InteractionComponent
+DataBinding ..> DataBindingComponent
+RenderingControl ..> RenderingSurface : hints
+
+note bottom
+Canvas2D is the v1 target. Geometry is modular so strokes can be added later without rewriting the engine.
+end note
+
+@enduml

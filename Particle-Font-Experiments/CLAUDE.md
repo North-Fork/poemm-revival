@@ -1,12 +1,12 @@
 # CLAUDE.md — Particle Font Experiments
 
-Working directory for particle typography experiments. Current active file: `particle-test-flocking-06.html`.
+Working directory for particle typography experiments. Current active file: `particle-test-flocking-07.html`.
 
 Earlier experiments archived in `archive/`.
 
 ---
 
-## particle-test-flocking-06.html — Feature Summary
+## particle-test-flocking-07.html — Feature Summary
 
 ### Control Panel (left sidebar, 320px)
 - **Text input** — live textarea; Apply button rebuilds glyphs
@@ -17,13 +17,21 @@ Earlier experiments archived in `archive/`.
 - **Settings** — named Behaviour sets and Text sets, saved to `localStorage`
 
 ### Glyph Particle System
-- Font, font size (pt), particle size (px), density (%), particle speed, particle colour, shape (square → circle roundness), unruliness
+- Font, font size (pt), particle size (px), density (%), particle speed, particle colour, shape (square → circle roundness), Outside
 - Per-glyph alpha mask built from offscreen canvas; particles confined to mask shape
 - At ≤2px particle size: snaps to solid glyph render (fixes grey fringe + perf crawl)
 
+### Containment — Outside behaviour
+- **Outside** (0–100%): relaxes glyph boundary so particles drift outside and wander back
+  - Wall avoidance scales to zero as Outside rises
+  - Return force always present (15% minimum at Outside=100%) — particles wander, never escape permanently
+  - Return force aims at each particle's **birth position** (not glyph centre), fixing counter clusters in 'o', 'h', 'e', etc.
+  - At Outside=0: escaped particles have flocking suppressed so return force dominates and they stream back
+- Crystallisation ramp: `solidifyT` runs from cellPx=3→2 only (was 6→2), restoring full flocking at default 4px
+
 ### Flocking (Reynolds Boids)
 - Perception radius, Separation, Alignment, Cohesion
-- Crystallisation: at small particle sizes, flocking scales down and particles snap toward birth-grid positions
+- Crystallisation: at small particle sizes (≤3px), flocking scales down and particles snap toward birth-grid positions
 
 ### Letter Movement
 - Letter Speed, Wander Radius, Letter Repulsion (soft collision between glyphs)
@@ -37,4 +45,4 @@ Earlier experiments archived in `archive/`.
 
 ## TO DO
 
-- **UNRULINESS:** When we redesigned particle size to snap to the regular glyph, it broke something with the rest of the particle behaviours. They are all too well-behaved now.
+(none)

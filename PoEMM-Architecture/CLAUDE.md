@@ -93,8 +93,13 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 | `g.stateMachine` | Optional SM instance from `makeStateMachine()` |
 | `AgentEngine` | Module-level singleton; 7-phase `processFrame(dt, bCtx)` |
 | `makeStateMachine(statesDef, initial)` | Returns `{ init, receive, currentState, detach }` |
-| `contagionStates` | Demo SM: idle ↔ excited (Shake+Flicker, 80px broadcast, 3s timer) |
-| `attachContagion(glyphs)` / `detachContagion(glyphs)` | Attach/remove contagion SM from all printable glyphs |
+| `sm.tag` | String tag set after SM creation; used to scope detach helpers |
+| `contagionStates` | SM: idle ↔ excited (Shake+Flicker, 80px broadcast, 3s timer) |
+| `predatorStates` | SM: idle ↔ hunting (Attract to pointer, broadcasts 'hunt' 200px/tick) |
+| `preyStates` | SM: idle ↔ fleeing (Flee behaviour, calm timer once on enter) |
+| `Flee` behaviour | SM-internal; pushes away from `g._state.get(Flee.sym).{tx,ty}`; not in dropdown |
+| `attachContagion` / `detachContagion` | tag-scoped to 'contagion' |
+| `attachPredatorPrey(predGs,allGs)` / `detachPredatorPrey` | selected→predators, rest→prey; random 20% fallback |
 
 **AgentEngine phases:**
 1. Timer delivery (fire due timers → mailbox, immediate)
@@ -109,14 +114,18 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 
 **SM behaviour management:** SM tracks `_injected[]`; auto-spliced on exit/detach. User-added behaviours never touched.
 
-### Panel sections
+**Prey calm-down pattern:** schedule ONE 'calm' timer in `onEnter` — never reschedule on each 'hunt' (causes timer spam at 60fps). On 'calm': check `time - lastHunt > 1.5s`; if still being hunted, re-arm a single 1s check.
+
+**Bug fix:** Select-mode delete auto-switches to Type mode when `docText` becomes empty (prevents getting stuck with no glyphs to click back).
+
+### Panel sections (top → bottom)
 - **Type** — font family, size, justify
 - **Colour** — text, background
 - **Mode** — Type / Select toggle
-- **Agent** — Attach/Detach Contagion toggle (permanent, outside selectionPanel)
-- **Behaviours** — per-selection behaviour instances + param sliders (Select mode)
-- **Geometry** — outline2d / particles toggle + particle params (Select mode)
-- **Agent** (in selectionPanel) — message-type input + Send button; SM state display in bPanel header
+- **Agent** (permanent) — `#contagionBtn` Attach/Detach Contagion; `#predPreyBtn` Attach/Detach Pred/Prey
+- **Behaviours** — per-selection instances + sliders; SM state display when SM present (Select mode)
+- **Geometry** — outline2d / particles toggle + params (Select mode)
+- **Agent** (in selectionPanel) — `#smTriggerInput` + `#smSendBtn`; sends to selected glyphs
 
 ---
 

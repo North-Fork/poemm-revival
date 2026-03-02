@@ -279,8 +279,26 @@ Behaviours at higher levels are stored on the node that owns them; the engine ca
 3. ✅ **outline2d geometry** — plain fillText; layout verified (merged with step 4)
 4. ✅ **Behaviour system** — `apply(g, dt, ctx, params)` interface, `syncTestBehaviours()` harness, Drift + Shake; test checkboxes + sliders in panel
 5. ✅ **Authoring UI** — Type/Select mode toggle, click to select glyph, dblclick to select word, Escape to deselect, dynamic behaviour panel, add/remove/tune behaviours per selection, orange selection highlight
-6. Particle geometry — clean rewrite of flocking-07 as GeometryProvider
-7. Port particle behaviours — flocking, Outside, crystallisation
+6. ✅ **Particle geometry** — clean rewrite of flocking-07 as GeometryProvider
+7. ✅ **Port particle behaviours** — flocking, Outside, crystallisation
+8. Pie menus
+9. ✅ **Remaining v1 behaviour palette** — Flicker, Pulse, SpringHome, Wander, Gravity, Attract, Repel, Orbit; added `g.scale` to glyph model + render paths
+
+---
+
+## Known Bugs
+
+### Bug: Text does not wrap at canvas edge
+
+**Status:** Known, deferred.
+
+**Symptom:** When typing past the right edge of the canvas, text continues off-screen instead of wrapping to the next line.
+
+**Root causes (two interacting):**
+1. First-pass wrap condition: `if (runX > 0 && runX + wordW > W - 2 * MARGIN)` — the `runX > 0` guard prevents a lone oversized first word on a fresh line from ever wrapping.
+2. The second pass only increments `y` on explicit `\n` tokens. This was partially addressed by the `endedWithNewline` tracking (which is in the current code), but the first-pass wrap condition still fails to break long first words.
+
+**Attempted fix (reverted):** Both conditions were addressed simultaneously in a previous session (`contentX` variable for word-only tracking in first pass + `endedWithNewline` for y-advance). When both were active together, the position-transfer system produced chaotic visual output on backspace. Needs a clean, isolated fix — fix the first-pass wrap condition in isolation first, then verify position transfer stability.
 
 ---
 

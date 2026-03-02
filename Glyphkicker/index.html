@@ -84,6 +84,11 @@ select:focus { outline: none; border-color: #336; }
 .bph-beh-label { font-size: 11px; color: #aaa; }
 .bph-beh-remove { background: none; border: none; color: #444; cursor: pointer; font-size: 10px; padding: 0 2px; }
 .bph-beh-remove:hover { color: #f77; }
+
+.geo-section-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #333; margin: 8px 0 4px; border-top: 1px solid #191919; padding-top: 6px;
+}
 </style>
 </head>
 <body>
@@ -146,9 +151,21 @@ select:focus { outline: none; border-color: #336; }
       <select id="bAdd">
         <option value="">— add behaviour —</option>
         <option value="Drift">Drift</option>
+        <option value="Wander">Wander</option>
         <option value="Shake">Shake</option>
+        <option value="Flicker">Flicker</option>
+        <option value="Pulse">Pulse</option>
+        <option value="Gravity">Gravity</option>
+        <option value="Attract">Attract</option>
+        <option value="Repel">Repel</option>
+        <option value="SpringHome">Spring Home</option>
+        <option value="Orbit">Orbit</option>
+        <option value="ParticleFlocking">Particle Flocking</option>
+        <option value="ParticleOutside">Particle Outside</option>
       </select>
     </div>
+    <div class="section-label">Geometry</div>
+    <div id="geoPanel"></div>
   </div>
 </div>
 
@@ -213,15 +230,92 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 
 // ── Document model ─────────────────────────────────────────────────────────────
-let docText     = '';
-let cursorPos   = 0;
-let glyphs      = [];
-let prevDocText = '';   // last-laid-out string, used for position transfer
+let docText        = '';
+let cursorPos      = 0;
+let anchorPos      = 0;     // text-range selection anchor; equals cursorPos when no range active
+let glyphs         = [];
+let prevDocText    = '';    // last-laid-out string, used for position transfer
+
+// Layout origin — where the first line baseline starts. Updated by blank-canvas clicks.
+let layoutOriginX  = MARGIN;
+let layoutOriginY  = null;  // null → MARGIN + fontPt (computed at layout time)
 
 // ── Editor mode & selection ─────────────────────────────────────────────────────
 let editorMode    = 'type';    // 'type' | 'select'
 let selectedIds   = new Set(); // IDs of currently selected glyph agents
 let selectedGlyphs = [];       // live references (re-synced after each layout)
+
+// ── Undo / Redo ─────────────────────────────────────────────────────────────────
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO  = 100;
+
+function captureSnapshot() {
+  return {
+    docText,
+    cursorPos,
+    anchorPos,
+    glyphByIndex: new Map(glyphs.map(g => [g.index, {
+      x:            g.x,
+      y:            g.y,
+      rotation:     g.rotation,
+      scale:        g.scale,
+      dynamics:     { ...g.dynamics },
+      material:     { ...g.material },
+      geometryType: g.geometry.type,
+      behaviours:   g.behaviours.map(b => {
+        const def = BEHAVIOUR_DEFS.find(d => d.type === b.type);
+        return def ? { key: def.key, params: { ...b.params } } : null;
+      }).filter(Boolean),
+    }])),
+  };
+}
+
+function pushUndo() {
+  undoStack.push(captureSnapshot());
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function applySnapshot(snap) {
+  docText     = snap.docText;
+  cursorPos   = snap.cursorPos;
+  anchorPos   = snap.anchorPos;
+  prevDocText = '';
+  glyphs      = [];
+  layout();
+  for (const g of glyphs) {
+    const s = snap.glyphByIndex.get(g.index);
+    if (!s) continue;
+    g.x          = s.x;
+    g.y          = s.y;
+    g.rotation   = s.rotation;
+    g.scale      = s.scale;
+    g.dynamics   = { ...s.dynamics };
+    g.material   = { ...s.material };
+    g.geometry   = { type: s.geometryType };
+    g.behaviours = s.behaviours.map(b => {
+      const def = BEHAVIOUR_DEFS.find(d => d.key === b.key);
+      return def ? { type: def.type, params: { ...b.params } } : null;
+    }).filter(Boolean);
+  }
+  selectedIds    = new Set();
+  selectedGlyphs = [];
+  if (editorMode === 'select') { updateBehaviourPanel(); updateGeometryPanel(); }
+  resetBlink();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(captureSnapshot());
+  applySnapshot(undoStack.pop());
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(captureSnapshot());
+  applySnapshot(redoStack.pop());
+}
 
 // ── GlyphAgent ─────────────────────────────────────────────────────────────────
 let _uid = 0;
@@ -235,6 +329,7 @@ function makeGlyph(char, index, hx, hy, w) {
     homeX: hx, homeY: hy,   // typographic home (CSS px) — set by layout
     x: hx, y: hy,            // current visual position
     rotation: 0,             // radians
+    scale: 1,                // uniform scale (1 = normal)
 
     w,                       // advance width (CSS px)
 
@@ -265,13 +360,31 @@ function makeGlyph(char, index, hx, hy, w) {
 
 // ── Position transfer helpers ──────────────────────────────────────────────────
 // Copy all visual/dynamic state from a previous glyph agent to a newly-built one.
+// Raw: dst keeps src's exact visual position (for same-character identity).
 function transferGlyph(src, dst) {
   dst.id         = src.id;
   dst.x          = src.x;
   dst.y          = src.y;
   dst.rotation   = src.rotation;
+  dst.scale      = src.scale;
   dst.dynamics   = src.dynamics;
   dst.material   = src.material;
+  dst.geometry   = src.geometry;   // preserve particle state across layout reflows
+  dst._state     = src._state;
+  dst.rng        = src.rng;
+  dst.behaviours = src.behaviours;
+}
+// Relative: dst snaps to its new home while preserving any drift offset from src.
+// Use this when the glyph's home position has shifted (insertion/deletion of neighbours).
+function transferGlyphRelative(src, dst) {
+  dst.id         = src.id;
+  dst.x          = dst.homeX + (src.x - src.homeX);
+  dst.y          = dst.homeY + (src.y - src.homeY);
+  dst.rotation   = src.rotation;
+  dst.scale      = src.scale;
+  dst.dynamics   = src.dynamics;
+  dst.material   = src.material;
+  dst.geometry   = src.geometry;
   dst._state     = src._state;
   dst.rng        = src.rng;
   dst.behaviours = src.behaviours;
@@ -308,7 +421,7 @@ function justifyX(contentW) {
   switch (PARAMS.justify) {
     case 'center': return Math.max(MARGIN, (W - contentW) / 2);
     case 'right':  return Math.max(MARGIN, W - MARGIN - contentW);
-    default:       return MARGIN;
+    default:       return layoutOriginX;
   }
 }
 
@@ -366,21 +479,27 @@ function layout() {
   if (curItems.length) flushLine();
 
   // ── Second pass: place glyphs anchored by justification ──────────────────
-  let y = MARGIN + PARAMS.fontPt;
+  let y = layoutOriginY !== null ? layoutOriginY : MARGIN + PARAMS.fontPt;
   for (const line of lines) {
     let x = justifyX(line.contentW);
+    let endedWithNewline = false;
     for (const { seg, cws } of line.items) {
       if (seg.type === 'newline') {
         next.push(makeGlyph('\n', seg.start, x, y, 0)); y += lineH;
+        endedWithNewline = true;
       } else if (seg.type === 'space') {
         next.push(makeGlyph(' ', seg.start, x, y, spaceW)); x += spaceW;
+        endedWithNewline = false;
       } else {
         for (let k = 0; k < seg.text.length; k++) {
           next.push(makeGlyph(seg.text[k], seg.start + k, x, y, cws[k]));
           x += cws[k];
         }
+        endedWithNewline = false;
       }
     }
+    // Word-wrapped lines have no newline token — advance y here.
+    if (!endedWithNewline) y += lineH;
   }
 
   // ── Transfer visual state from previous glyphs ────────────────────────────
@@ -396,17 +515,18 @@ function layout() {
     for (const g of next) {
       if (g.index < p)  { const s = prevByIdx.get(g.index);     if (s) transferGlyph(s, g); }
       else if (g.index === p) { spawnInterpolated(g, next); }
-      else              { const s = prevByIdx.get(g.index - 1); if (s) transferGlyph(s, g); }
+      else              { const s = prevByIdx.get(g.index - 1); if (s) transferGlyphRelative(s, g); }
     }
-  } else if (newLen === oldLen - 1) {
-    // Single deletion: find what was removed
+  } else if (newLen < oldLen) {
+    // Any deletion (single char, word-delete, or range delete)
     let p = 0;
     while (p < newLen && docText[p] === prevDocText[p]) p++;
+    const dc = oldLen - newLen;
     for (const g of next) {
       const s = g.index < p
         ? prevByIdx.get(g.index)
-        : prevByIdx.get(g.index + 1);
-      if (s) transferGlyph(s, g);
+        : prevByIdx.get(g.index + dc);
+      if (s) transferGlyphRelative(s, g);
     }
   } else if (newLen > oldLen) {
     // Paste or multi-insert: transfer what matches, interpolate the rest
@@ -423,15 +543,7 @@ function layout() {
     for (const g of next) {
       const s = prevByIdx.get(g.index);
       if (!s) continue;
-      g.id         = s.id;
-      g.x          = g.homeX + (s.x - s.homeX);
-      g.y          = g.homeY + (s.y - s.homeY);
-      g.rotation   = s.rotation;
-      g.dynamics   = s.dynamics;
-      g.material   = s.material;
-      g._state     = s._state;
-      g.rng        = s.rng;
-      g.behaviours = s.behaviours;
+      transferGlyphRelative(s, g);
     }
   }
 
@@ -439,7 +551,10 @@ function layout() {
   glyphs = next;
   // Re-sync selected glyph references — layout rebuilds the array but transferGlyph preserves ids.
   selectedGlyphs = glyphs.filter(g => selectedIds.has(g.id));
-  if (editorMode === 'select') updateBehaviourPanel();
+  if (editorMode === 'select') {
+    updateBehaviourPanel();
+    updateGeometryPanel();
+  }
 }
 
 // ── Behaviour system ────────────────────────────────────────────────────────────
@@ -489,6 +604,219 @@ const Shake = {
   },
 };
 
+// Geometry-specific behaviours: no-op if the glyph does not have particle geometry.
+
+// Reynolds boids flocking (separation, alignment, cohesion) applied to the
+// particle cloud of a particle-geometry glyph.
+// Runs its O(n²) loop before stepParticleGeometry integrates position.
+// solidifyT (from cellPx) scales forces down so particles settle at small sizes.
+const ParticleFlocking = {
+  sym:      Symbol('ParticleFlocking'),
+  defaults: { perception: 88, separation: 4.4, alignment: 0.3, cohesion: 0 },
+  apply(g, dt, bCtx, p) {
+    if (g.geometry.type !== 'particles' || !g.geometry.data) return;
+
+    const gd  = g.geometry.data;
+    const pp  = g.geometry.params;
+    const ps  = gd.particles;
+    const n   = ps.length;
+    const vmax      = pp.particleSpeed * 1.5;
+    const perc      = p.perception;
+    const perc2     = perc * perc;
+    const sepR2     = (perc * 0.5) * (perc * 0.5);
+    const solidifyT = Math.min(1, Math.max(0, 3 - pp.cellPx));
+    const fScale    = 1 - solidifyT;
+    const out       = pp.outside / 100;
+    const { mask, maskW, maskH } = gd;
+
+    const inside = (lx, ly) => {
+      const xi = Math.round(lx + maskW / 2);
+      const yi = Math.round(ly + maskH / 2);
+      if (xi < 0 || xi >= maskW || yi < 0 || yi >= maskH) return false;
+      return mask[yi * maskW + xi] === 1;
+    };
+
+    for (let i = 0; i < n; i++) {
+      const pi = ps[i];
+      // Suppress flocking for escaped particles when fully contained.
+      if (out === 0 && !inside(pi.x, pi.y)) continue;
+
+      let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, nc = 0;
+
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const pj  = ps[j];
+        const ddx = pj.x - pi.x, ddy = pj.y - pi.y;
+        const d2  = ddx * ddx + ddy * ddy;
+        if (d2 > perc2) continue;
+        if (d2 < sepR2 && d2 > 0) { sx -= ddx / d2; sy -= ddy / d2; }
+        ax += pj.vx; ay += pj.vy;
+        cx += pj.x;  cy += pj.y;
+        nc++;
+      }
+
+      if (nc === 0) continue;
+
+      let fx = 0, fy = 0;
+      const sm = Math.hypot(sx, sy);
+      if (sm > 0) {
+        fx += (sx / sm * vmax - pi.vx) * p.separation;
+        fy += (sy / sm * vmax - pi.vy) * p.separation;
+      }
+      const am = Math.hypot(ax, ay) || 1;
+      fx += (ax / am * vmax - pi.vx) * p.alignment;
+      fy += (ay / am * vmax - pi.vy) * p.alignment;
+      const tcx = cx / nc - pi.x, tcy = cy / nc - pi.y;
+      const tm  = Math.hypot(tcx, tcy) || 1;
+      fx += (tcx / tm * vmax - pi.vx) * p.cohesion;
+      fy += (tcy / tm * vmax - pi.vy) * p.cohesion;
+
+      // Scale forces down as particles crystallise (small cellPx).
+      pi.vx += fx * fScale * dt;
+      pi.vy += fy * fScale * dt;
+    }
+  },
+};
+
+// Allows particles to drift across the glyph boundary and wander back.
+// Writes pp.outside each frame so stepParticleGeometry reads the correct value.
+// Note: if this behaviour is removed, pp.outside retains the last value until
+// the geometry panel Outside slider is moved (v1 limitation).
+const ParticleOutside = {
+  sym:      Symbol('ParticleOutside'),
+  defaults: { outside: 50 },
+  apply(g, dt, bCtx, p) {
+    if (g.geometry.type !== 'particles') return;
+    g.geometry.params.outside = p.outside;
+  },
+};
+
+// ── General behaviours ────────────────────────────────────────────────────────
+
+// Oscillates opacity between min and max at the given rate (Hz).
+const Flicker = {
+  sym:      Symbol('Flicker'),
+  defaults: { rate: 2, min: 0.2 },
+  apply(g, dt, bCtx, p) {
+    let s = g._state.get(Flicker.sym);
+    if (!s) { s = { phase: g.rng() * Math.PI * 2 }; g._state.set(Flicker.sym, s); }
+    s.phase += p.rate * Math.PI * 2 * dt;
+    const t = (Math.sin(s.phase) + 1) * 0.5;
+    g.material.opacity = p.min + t * (1 - p.min);
+  },
+};
+
+// Oscillates scale around 1 at the given speed (Hz).
+const Pulse = {
+  sym:      Symbol('Pulse'),
+  defaults: { amplitude: 0.3, speed: 1 },
+  apply(g, dt, bCtx, p) {
+    let s = g._state.get(Pulse.sym);
+    if (!s) { s = { phase: g.rng() * Math.PI * 2 }; g._state.set(Pulse.sym, s); }
+    s.phase += p.speed * Math.PI * 2 * dt;
+    g.scale = 1 + p.amplitude * Math.sin(s.phase);
+  },
+};
+
+// Elastic spring pulling each glyph toward its home position.
+const SpringHome = {
+  sym:      Symbol('SpringHome'),
+  defaults: { stiffness: 12 },
+  apply(g, dt, bCtx, p) {
+    g.dynamics.vx += (g.homeX - g.x) * p.stiffness * dt;
+    g.dynamics.vy += (g.homeY - g.y) * p.stiffness * dt;
+  },
+};
+
+// Random walk across the canvas (target not anchored to home).
+const Wander = {
+  sym:      Symbol('Wander'),
+  defaults: { radius: 160, speed: 45 },
+  apply(g, dt, bCtx, p) {
+    let s = g._state.get(Wander.sym);
+    if (!s) {
+      s = { tx: g.x, ty: g.y };
+      g._state.set(Wander.sym, s);
+    }
+    const dx = s.tx - g.x, dy = s.ty - g.y;
+    const d  = Math.hypot(dx, dy);
+    if (d < 6) {
+      const angle = g.rng() * Math.PI * 2;
+      const r     = g.rng() * p.radius;
+      s.tx = Math.max(0, Math.min(W, g.x + Math.cos(angle) * r));
+      s.ty = Math.max(0, Math.min(H, g.y + Math.sin(angle) * r));
+    } else {
+      g.dynamics.vx += ((dx / d) * p.speed - g.dynamics.vx) * 0.12;
+      g.dynamics.vy += ((dy / d) * p.speed - g.dynamics.vy) * 0.12;
+    }
+  },
+};
+
+// Simulated gravity with floor bounce. Floor is % of canvas height.
+const Gravity = {
+  sym:      Symbol('Gravity'),
+  defaults: { gravity: 400, bounce: 0.55, floor: 90 },
+  apply(g, dt, bCtx, p) {
+    g.dynamics.vy += p.gravity * dt;
+    const floor = p.floor / 100 * H;
+    if (g.y > floor) {
+      g.y = floor;
+      g.dynamics.vy *= -p.bounce;
+      g.dynamics.vx *= 0.88; // friction
+    }
+  },
+};
+
+// Pulls the glyph toward the pointer with inverse-distance force.
+const Attract = {
+  sym:      Symbol('Attract'),
+  defaults: { strength: 200, radius: 300 },
+  apply(g, dt, bCtx, p) {
+    if (!bCtx.inputState.onCanvas) return;
+    const cx = g.x + g.w * 0.5, cy = g.y - PARAMS.fontPt * 0.4;
+    const dx = bCtx.inputState.x - cx, dy = bCtx.inputState.y - cy;
+    const d  = Math.hypot(dx, dy);
+    if (d < 1 || d > p.radius) return;
+    const f = p.strength / (d + 1);
+    g.dynamics.vx += (dx / d) * f * dt;
+    g.dynamics.vy += (dy / d) * f * dt;
+  },
+};
+
+// Pushes the glyph away from the pointer.
+const Repel = {
+  sym:      Symbol('Repel'),
+  defaults: { strength: 400, radius: 120 },
+  apply(g, dt, bCtx, p) {
+    if (!bCtx.inputState.onCanvas) return;
+    const cx = g.x + g.w * 0.5, cy = g.y - PARAMS.fontPt * 0.4;
+    const dx = cx - bCtx.inputState.x, dy = cy - bCtx.inputState.y;
+    const d  = Math.hypot(dx, dy);
+    if (d < 1 || d > p.radius) return;
+    const f = p.strength * (1 - d / p.radius) / (d + 1);
+    g.dynamics.vx += (dx / d) * f * dt;
+    g.dynamics.vy += (dy / d) * f * dt;
+  },
+};
+
+// Circular orbit around the glyph's home position.
+const Orbit = {
+  sym:      Symbol('Orbit'),
+  defaults: { radius: 40, speed: 90 },  // speed in °/s
+  apply(g, dt, bCtx, p) {
+    let s = g._state.get(Orbit.sym);
+    if (!s) {
+      s = { angle: Math.atan2(g.y - g.homeY, g.x - g.homeX) };
+      g._state.set(Orbit.sym, s);
+    }
+    s.angle += p.speed * Math.PI / 180 * dt;
+    const tx = g.homeX + Math.cos(s.angle) * p.radius;
+    const ty = g.homeY + Math.sin(s.angle) * p.radius;
+    g.dynamics.vx += (tx - g.x) * 20 * dt;
+    g.dynamics.vy += (ty - g.y) * 20 * dt;
+  },
+};
+
 // ── Behaviour registry ──────────────────────────────────────────────────────────
 const BEHAVIOUR_DEFS = [
   {
@@ -503,6 +831,77 @@ const BEHAVIOUR_DEFS = [
     params: [
       { key: 'amplitude', label: 'Amplitude', min: 0.5, max: 20,  step: 0.5, suffix: 'px',   default: 4 },
       { key: 'speed',     label: 'Speed',     min: 1,   max: 30,  step: 0.5, suffix: 'Hz',   default: 15 },
+    ],
+  },
+  {
+    key: 'Flicker', type: Flicker, label: 'Flicker',
+    params: [
+      { key: 'rate', label: 'Rate',    min: 0.2, max: 20,  step: 0.1, suffix: 'Hz', default: 2   },
+      { key: 'min',  label: 'Min α',   min: 0,   max: 0.95, step: 0.05, suffix: '',  default: 0.2 },
+    ],
+  },
+  {
+    key: 'Pulse', type: Pulse, label: 'Pulse',
+    params: [
+      { key: 'amplitude', label: 'Amplitude', min: 0.05, max: 1,  step: 0.05, suffix: '×', default: 0.3 },
+      { key: 'speed',     label: 'Speed',     min: 0.2,  max: 10, step: 0.1,  suffix: 'Hz', default: 1  },
+    ],
+  },
+  {
+    key: 'SpringHome', type: SpringHome, label: 'Spring Home',
+    params: [
+      { key: 'stiffness', label: 'Stiffness', min: 1, max: 60, step: 1, suffix: '', default: 12 },
+    ],
+  },
+  {
+    key: 'Wander', type: Wander, label: 'Wander',
+    params: [
+      { key: 'radius', label: 'Radius', min: 20,  max: 600, step: 10, suffix: 'px',   default: 160 },
+      { key: 'speed',  label: 'Speed',  min: 10,  max: 200, step: 5,  suffix: 'px/s', default: 45  },
+    ],
+  },
+  {
+    key: 'Gravity', type: Gravity, label: 'Gravity',
+    params: [
+      { key: 'gravity', label: 'Gravity', min: 50,  max: 1200, step: 50,  suffix: 'px/s²', default: 400  },
+      { key: 'bounce',  label: 'Bounce',  min: 0,   max: 1,    step: 0.05, suffix: '',      default: 0.55 },
+      { key: 'floor',   label: 'Floor',   min: 10,  max: 100,  step: 1,   suffix: '%',     default: 90   },
+    ],
+  },
+  {
+    key: 'Attract', type: Attract, label: 'Attract',
+    params: [
+      { key: 'strength', label: 'Strength', min: 20,  max: 1000, step: 20,  suffix: '',   default: 200 },
+      { key: 'radius',   label: 'Radius',   min: 20,  max: 600,  step: 10,  suffix: 'px', default: 300 },
+    ],
+  },
+  {
+    key: 'Repel', type: Repel, label: 'Repel',
+    params: [
+      { key: 'strength', label: 'Strength', min: 20,  max: 2000, step: 20,  suffix: '',   default: 400 },
+      { key: 'radius',   label: 'Radius',   min: 20,  max: 400,  step: 10,  suffix: 'px', default: 120 },
+    ],
+  },
+  {
+    key: 'Orbit', type: Orbit, label: 'Orbit',
+    params: [
+      { key: 'radius', label: 'Radius', min: 5,  max: 300, step: 5,  suffix: 'px',  default: 40 },
+      { key: 'speed',  label: 'Speed',  min: 10, max: 720, step: 10, suffix: '°/s', default: 90 },
+    ],
+  },
+  {
+    key: 'ParticleFlocking', type: ParticleFlocking, label: 'Particle Flocking',
+    params: [
+      { key: 'perception', label: 'Perception', min: 5,   max: 200, step: 1,   suffix: 'px', default: 88  },
+      { key: 'separation', label: 'Separation', min: 0,   max: 8,   step: 0.1, suffix: '',   default: 4.4 },
+      { key: 'alignment',  label: 'Alignment',  min: 0,   max: 5,   step: 0.1, suffix: '',   default: 0.3 },
+      { key: 'cohesion',   label: 'Cohesion',   min: 0,   max: 5,   step: 0.1, suffix: '',   default: 0   },
+    ],
+  },
+  {
+    key: 'ParticleOutside', type: ParticleOutside, label: 'Particle Outside',
+    params: [
+      { key: 'outside', label: 'Outside', min: 0, max: 100, step: 1, suffix: '%', default: 50 },
     ],
   },
 ];
@@ -522,6 +921,7 @@ function selectGlyphs(gs) {
   selectedGlyphs = gs;
   selectedIds    = new Set(gs.map(g => g.id));
   updateBehaviourPanel();
+  updateGeometryPanel();
 }
 
 function selectWord(g) {
@@ -532,24 +932,74 @@ function selectWord(g) {
   selectGlyphs(glyphs.filter(h => h.index >= lo && h.index < hi && h.char !== '\n' && h.char !== ' '));
 }
 
+function selectLine(g) {
+  const lo = docText.lastIndexOf('\n', g.index - 1) + 1;
+  let hi = docText.indexOf('\n', g.index);
+  if (hi === -1) hi = docText.length;
+  selectGlyphs(glyphs.filter(h => h.index >= lo && h.index < hi && h.char !== '\n' && h.char !== ' '));
+}
+
+const SENTENCE_END = new Set(['.', '!', '?']);
+
+function selectSentenceOrLine(g) {
+  const lo = docText.lastIndexOf('\n', g.index - 1) + 1;
+  let hi = docText.indexOf('\n', g.index);
+  if (hi === -1) hi = docText.length;
+
+  // If the line contains no sentence-ending punctuation, select the whole line.
+  let hasSentEnd = false;
+  for (let i = lo; i < hi; i++) { if (SENTENCE_END.has(docText[i])) { hasSentEnd = true; break; } }
+  if (!hasSentEnd) { selectLine(g); return; }
+
+  // Sentence start: after previous sentence-ender within the line (skip leading spaces).
+  let sentLo = g.index;
+  while (sentLo > lo) {
+    sentLo--;
+    if (SENTENCE_END.has(docText[sentLo])) { sentLo++; break; }
+  }
+  while (sentLo < g.index && docText[sentLo] === ' ') sentLo++;
+
+  // Sentence end: up to and including the next sentence-ender, or line end.
+  let sentHi = g.index;
+  while (sentHi < hi) {
+    if (SENTENCE_END.has(docText[sentHi])) { sentHi++; break; }
+    sentHi++;
+  }
+
+  selectGlyphs(glyphs.filter(h => h.index >= sentLo && h.index < sentHi && h.char !== '\n' && h.char !== ' '));
+}
+
 function setEditorMode(mode) {
   editorMode = mode;
   canvas.style.cursor = mode === 'type' ? 'text' : 'default';
   const sp = document.getElementById('selectionPanel');
   if (sp) sp.style.display = mode === 'select' ? 'block' : 'none';
   document.querySelectorAll('.mbtn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  if (mode === 'type') selectGlyphs([]);
+  if (mode === 'type') {
+    selectGlyphs([]);
+  } else {
+    anchorPos = cursorPos; // collapse any type-mode text selection
+    // Pre-select the glyph adjacent to the cursor so the user can immediately
+    // add behaviours after clicking near a letter in Type mode.
+    if (selectedGlyphs.length === 0) {
+      const g = glyphs.find(g => g.index === cursorPos - 1 && g.char !== '\n' && g.char !== ' ')
+             || glyphs.find(g => g.index === cursorPos     && g.char !== '\n' && g.char !== ' ');
+      if (g) selectGlyphs([g]);
+    }
+  }
 }
 
 function addBehaviour(defKey) {
   const def = BEHAVIOUR_DEFS.find(d => d.key === defKey);
   if (!def || selectedGlyphs.length === 0) return;
+  pushUndo();
   const inst = { type: def.type, params: def.params.reduce((o, p) => ({ ...o, [p.key]: p.default }), {}) };
   for (const g of selectedGlyphs) g.behaviours.push(inst);
   updateBehaviourPanel();
 }
 
 function removeBehaviourAtIndex(idx) {
+  pushUndo();
   for (const g of selectedGlyphs) g.behaviours.splice(idx, 1);
   updateBehaviourPanel();
 }
@@ -598,12 +1048,363 @@ function updateBehaviourPanel() {
   });
 }
 
+// ── Particle geometry ───────────────────────────────────────────────────────────
+// GeometryProvider for particle-based glyph rendering.
+// Particle positions are in CSS px, local-space centred at (0, 0) = glyph visual centre.
+// The provider is self-contained: build → step (each physics tick) → draw.
+
+const DEFAULT_PARTICLE_PARAMS = {
+  cellPx:        4,     // particle size in CSS px
+  density:       156,   // percent of grid cells to fill (÷100 when used)
+  particleSpeed: 100,   // px/s
+  roundness:     62,    // particle shape: 0 = square, 100 = circle (÷100 when used)
+  outside:       0,     // 0 = fully contained, 100 = freely wanders outside (÷100 when used)
+  // perception/separation/alignment/cohesion live on the ParticleFlocking Behaviour
+};
+
+// Build (or rebuild) the particle data for a glyph.
+// Safe to call multiple times; replaces g.geometry.data in-place.
+function buildParticleGeometry(g) {
+  if (g.char === '\n' || g.char === ' ') return;
+
+  const pp      = g.geometry.params;
+  const cell    = pp.cellPx;
+  const density = pp.density / 100;
+  const vmin    = pp.particleSpeed * 0.5;
+  const vmax    = pp.particleSpeed * 1.5;
+
+  // Build alpha mask on an offscreen canvas.
+  // Glyph is rendered centred (textAlign='center', textBaseline='middle')
+  // so local particle coords are centred at (0, 0).
+  const pad  = 8;
+  const fpx  = PARAMS.fontPt;   // CSS px — consistent with main canvas coordinate space
+  let mW = Math.round(fpx * 1.25 + pad * 2);
+  let mH = Math.round(fpx * 1.10 + pad * 2);
+  if (mW % 2) mW++;
+  if (mH % 2) mH++;
+
+  const off  = document.createElement('canvas');
+  off.width  = mW;
+  off.height = mH;
+  const octx = off.getContext('2d');
+  octx.font         = fontStr();
+  octx.textAlign    = 'center';
+  octx.textBaseline = 'middle';
+  octx.fillStyle    = '#fff';
+  octx.fillText(g.char, mW / 2, mH / 2);
+
+  const raw  = octx.getImageData(0, 0, mW, mH).data;
+  const mask = new Uint8Array(mW * mH);
+  for (let i = 0; i < mW * mH; i++) {
+    mask[i] = raw[i * 4 + 3] > 128 ? 1 : 0;
+  }
+
+  // Collect all valid cell centres in local coords (glyph centred at origin).
+  const allCells = [];
+  const half = cell / 2;
+  for (let ly = -mH / 2 + half; ly < mH / 2; ly += cell) {
+    for (let lx = -mW / 2 + half; lx < mW / 2; lx += cell) {
+      const xi = Math.round(lx + mW / 2);
+      const yi = Math.round(ly + mH / 2);
+      if (xi >= 0 && xi < mW && yi >= 0 && yi < mH && mask[yi * mW + xi]) {
+        allCells.push({ x: lx, y: ly });
+      }
+    }
+  }
+
+  // Guard against invisible glyphs (e.g. unusual chars with no ink).
+  if (allCells.length === 0) {
+    g.geometry.data = { mask, maskW: mW, maskH: mH, allCells: [], particles: [] };
+    return;
+  }
+
+  // Sample particle birth positions (Math.random for spawning, per flocking-07).
+  const count = Math.max(1, Math.round(allCells.length * density));
+  const cells = [];
+  if (count >= allCells.length) {
+    cells.push(...allCells);
+    for (let i = allCells.length; i < count; i++) {
+      cells.push(allCells[Math.floor(Math.random() * allCells.length)]);
+    }
+  } else {
+    const idx = allCells.map((_, i) => i);
+    for (let i = 0; i < count; i++) {
+      const j = i + Math.floor(Math.random() * (idx.length - i));
+      [idx[i], idx[j]] = [idx[j], idx[i]];
+    }
+    for (let i = 0; i < count; i++) cells.push(allCells[idx[i]]);
+  }
+
+  const particles = cells.map(({ x, y }) => {
+    const spd   = vmin + Math.random() * (vmax - vmin);
+    const angle = Math.random() * Math.PI * 2;
+    return { x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, gx: x, gy: y };
+  });
+
+  g.geometry.data = { mask, maskW: mW, maskH: mH, allCells, particles };
+}
+
+// Advance the base particle simulation one physics step.
+// Handles: crystallisation snap, wall avoidance, Outside return force, hard-bounce.
+// Flocking is NOT run here — add the ParticleFlocking Behaviour to a glyph for that.
+// This function is O(n) per glyph; ParticleFlocking is the O(n²) part.
+function stepParticleGeometry(g, dt) {
+  const pp = g.geometry.params;
+  const gd = g.geometry.data;
+  if (!gd || pp.cellPx <= 2) return;   // solid render mode — no stepping needed
+
+  const ps        = gd.particles;
+  const n         = ps.length;
+  const cell      = pp.cellPx;
+  const vmax      = pp.particleSpeed * 1.5;
+  const vmin      = pp.particleSpeed * 0.5 * 0.3;
+  const out       = pp.outside / 100;
+  const wallD     = cell * 2.5;
+  const solidifyT = Math.min(1, Math.max(0, 3 - pp.cellPx));
+
+  const { mask, maskW, maskH } = gd;
+  const inside = (lx, ly) => {
+    const xi = Math.round(lx + maskW / 2);
+    const yi = Math.round(ly + maskH / 2);
+    if (xi < 0 || xi >= maskW || yi < 0 || yi >= maskH) return false;
+    return mask[yi * maskW + xi] === 1;
+  };
+
+  for (let i = 0; i < n; i++) {
+    const pi = ps[i];
+    let fx = 0, fy = 0;
+
+    // Crystallisation: snap toward birth grid position at small particle sizes.
+    if (solidifyT > 0) {
+      fx += (pi.gx - pi.x) * solidifyT * 20;
+      fy += (pi.gy - pi.y) * solidifyT * 20;
+    }
+
+    // Wall avoidance: probe 8 directions; Outside weakens this so particles can drift out.
+    const wallStr = 2.0 * (1 - out);
+    if (wallStr > 0) {
+      for (let k = 0; k < 8; k++) {
+        const a  = k * Math.PI * 0.25;
+        const wx = pi.x + Math.cos(a) * wallD;
+        const wy = pi.y + Math.sin(a) * wallD;
+        if (!inside(wx, wy)) {
+          fx += (-Math.cos(a) * vmax - pi.vx) * wallStr;
+          fy += (-Math.sin(a) * vmax - pi.vy) * wallStr;
+        }
+      }
+    }
+
+    pi.vx += fx * dt;
+    pi.vy += fy * dt;
+
+    // Speed clamping — limits scale toward zero as solidifyT rises so particles settle.
+    const effMax = vmax * Math.max(0.02, 1 - solidifyT * 0.98);
+    const effMin = vmin * (1 - solidifyT);
+    const spd    = Math.hypot(pi.vx, pi.vy);
+    if (spd > effMax) {
+      pi.vx = pi.vx / spd * effMax;
+      pi.vy = pi.vy / spd * effMax;
+    } else if (effMin > 0 && spd < effMin && spd > 0) {
+      pi.vx = pi.vx / spd * effMin;
+      pi.vy = pi.vy / spd * effMin;
+    } else if (spd === 0 && effMin > 0) {
+      const a = g.rng() * Math.PI * 2;
+      pi.vx = Math.cos(a) * effMin;
+      pi.vy = Math.sin(a) * effMin;
+    }
+
+    // Move
+    const nx = pi.x + pi.vx * dt;
+    const ny = pi.y + pi.vy * dt;
+
+    if (inside(nx, ny)) {
+      pi.x = nx; pi.y = ny;
+    } else if (!inside(pi.x, pi.y) || out > 0) {
+      // Already outside, or Outside mode allows boundary crossing.
+      // Return force aims at birth position (not glyph centre) to avoid
+      // counter-cluster issues inside glyphs like 'o', 'h', 'e'.
+      pi.x = nx; pi.y = ny;
+      if (!inside(pi.x, pi.y)) {
+        const ddx = pi.x - pi.gx, ddy = pi.y - pi.gy;
+        const od  = Math.hypot(ddx, ddy);
+        if (od > 0) {
+          const rx    = ddx / od, ry = ddy / od;
+          const blend = 1 - out * 0.85;   // at out=1: 15% return force always present
+          const vOut  = pi.vx * rx + pi.vy * ry;
+          if (vOut > 0) { pi.vx -= rx * vOut * blend; pi.vy -= ry * vOut * blend; }
+          pi.vx -= rx * vmax * blend * 3.0 * dt;
+          pi.vy -= ry * vmax * blend * 3.0 * dt;
+        }
+      }
+    } else {
+      // out=0 and particle is inside: hard-bounce to keep natural burbling.
+      if      (inside(pi.x, ny)) { pi.y = ny; pi.vx = -pi.vx; }
+      else if (inside(nx, pi.y)) { pi.x = nx; pi.vy = -pi.vy; }
+      else                       { pi.vx = -pi.vx; pi.vy = -pi.vy; }
+    }
+  }
+}
+
+// Draw a glyph's particle cloud at its current world position.
+// Uses ctx.save/restore so no canvas state leaks out.
+function drawParticleGeometry(g) {
+  const pp = g.geometry.params;
+  const gd = g.geometry.data;
+  if (!gd) return;
+
+  // Visual centre of the glyph in CSS px (same anchor used for highlight rects).
+  const wx = g.x + g.w / 2;
+  const wy = g.y - PARAMS.fontPt * 0.4;
+
+  ctx.save();
+  ctx.translate(wx, wy);
+  if (g.rotation !== 0) ctx.rotate(g.rotation);
+  if (g.scale   !== 1) ctx.scale(g.scale, g.scale);
+
+  const m = g.material;
+  ctx.globalAlpha              = m.opacity;
+  ctx.globalCompositeOperation = m.blendMode;
+  ctx.fillStyle                = m.fill || PARAMS.color;
+
+  if (pp.cellPx <= 2) {
+    // Solid render at tiny sizes — avoids grey fringe and perf crawl.
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(g.char, 0, 0);
+  } else {
+    const cell  = pp.cellPx;
+    const half  = cell / 2;
+    const round = pp.roundness / 100;
+    const r     = half * round;
+    for (const p of gd.particles) {
+      if (r <= 0) {
+        ctx.fillRect(p.x - half, p.y - half, cell, cell);
+      } else if (round >= 1) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, half, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.roundRect(p.x - half, p.y - half, cell, cell, r); ctx.fill();
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+// Rebuild particle geometry for every glyph currently in particle mode.
+// Call this after font family or font size changes — NOT on every keystroke.
+function rebuildParticleGeometries() {
+  for (const g of glyphs) {
+    if (g.geometry.type === 'particles') buildParticleGeometry(g);
+  }
+}
+
+// ── Geometry panel ──────────────────────────────────────────────────────────────
+// Dynamic panel section for switching geometry type and tuning particle params.
+
+const GEO_PARAM_DEFS = [
+  { key: 'cellPx',        label: 'Particle Size',  min: 1,   max: 20,  step: 1,   suffix: 'px',   rebuild: true  },
+  { key: 'density',       label: 'Density',        min: 10,  max: 300, step: 5,   suffix: '%',    rebuild: true  },
+  { key: 'particleSpeed', label: 'Speed',          min: 10,  max: 400, step: 10,  suffix: 'px/s', rebuild: false },
+  { key: 'roundness',     label: 'Shape',          min: 0,   max: 100, step: 1,   suffix: '%',    rebuild: false },
+  { key: 'outside',       label: 'Outside',        min: 0,   max: 100, step: 1,   suffix: '%',    rebuild: false },
+  // Flocking params removed — use the Particle Flocking behaviour instead.
+];
+
+function switchGeometryType(geoType) {
+  if (selectedGlyphs.length === 0) return;
+  for (const g of selectedGlyphs) {
+    if (geoType === 'particles') {
+      if (g.geometry.type !== 'particles') {
+        g.geometry = { type: 'particles', params: { ...DEFAULT_PARTICLE_PARAMS }, data: null };
+        buildParticleGeometry(g);
+      }
+    } else {
+      g.geometry = { type: 'outline2d' };
+    }
+  }
+  updateGeometryPanel();
+}
+
+function updateGeometryPanel() {
+  const panel = document.getElementById('geoPanel');
+  if (!panel) return;
+
+  if (selectedGlyphs.length === 0) {
+    panel.innerHTML = '';
+    return;
+  }
+
+  const g0     = selectedGlyphs[0];
+  const isPart = g0.geometry.type === 'particles';
+
+  let html = `<div class="btn-group">`;
+  html += `<button class="jbtn geo-type-btn ${!isPart ? 'active' : ''}" data-geo="outline2d">Outline</button>`;
+  html += `<button class="jbtn geo-type-btn ${isPart  ? 'active' : ''}" data-geo="particles">Particles</button>`;
+  html += `</div>`;
+
+  if (isPart) {
+    const pp = g0.geometry.params;
+    for (const def of GEO_PARAM_DEFS) {
+      if (def === null) {
+        html += `<div class="geo-section-label">Flocking</div>`;
+        continue;
+      }
+      const v    = pp[def.key];
+      const disp = Number.isInteger(v) ? String(v) : v.toFixed(1);
+      const sfxStr = def.suffix ? ' ' + def.suffix : '';
+      html += `<div class="param-row">`;
+      html += `<div class="param-header">`;
+      html += `<span class="param-name">${def.label}</span>`;
+      html += `<span class="param-val geo-pval" data-pk="${def.key}">${disp}${sfxStr}</span>`;
+      html += `</div>`;
+      html += `<input type="range" class="geo-slider" min="${def.min}" max="${def.max}" step="${def.step}" value="${v}"`;
+      html += ` data-pk="${def.key}" data-sfx="${def.suffix}" data-rebuild="${def.rebuild}">`;
+      html += `</div>`;
+    }
+    html += `<div class="param-row" style="margin-top:6px">`;
+    html += `<button class="jbtn geo-rebuild-btn" style="width:100%">Rebuild Particles</button>`;
+    html += `</div>`;
+  }
+
+  panel.innerHTML = html;
+
+  panel.querySelectorAll('.geo-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchGeometryType(btn.dataset.geo));
+  });
+
+  if (isPart) {
+    panel.querySelectorAll('.geo-slider').forEach(sl => {
+      sl.addEventListener('input', () => {
+        const pk          = sl.dataset.pk;
+        const v           = parseFloat(sl.value);
+        const needRebuild = sl.dataset.rebuild === 'true';
+        for (const g of selectedGlyphs) {
+          if (g.geometry.type !== 'particles') continue;
+          g.geometry.params[pk] = v;
+          if (needRebuild) buildParticleGeometry(g);
+        }
+        const sfx   = sl.dataset.sfx;
+        const disp  = Number.isInteger(v) ? String(v) : v.toFixed(1);
+        const sfxStr = sfx ? ' ' + sfx : '';
+        const valEl = panel.querySelector(`.geo-pval[data-pk="${pk}"]`);
+        if (valEl) valEl.textContent = `${disp}${sfxStr}`;
+      });
+    });
+
+    panel.querySelector('.geo-rebuild-btn').addEventListener('click', () => {
+      for (const g of selectedGlyphs) {
+        if (g.geometry.type === 'particles') buildParticleGeometry(g);
+      }
+    });
+  }
+}
+
 // ── Dynamics integration ────────────────────────────────────────────────────────
-function stepDynamics(dt, ctx) {
+function stepDynamics(dt, bCtx) {
   for (const g of glyphs) {
     // Run all active behaviours before integrating position
     for (const inst of g.behaviours) {
-      inst.type.apply(g, dt, ctx, inst.params);
+      inst.type.apply(g, dt, bCtx, inst.params);
     }
     const d = g.dynamics;
     g.x        += d.vx         * dt;
@@ -612,28 +1413,65 @@ function stepDynamics(dt, ctx) {
     d.vx        *= d.damping;
     d.vy        *= d.damping;
     d.angularVel *= d.damping;
+
+    // Internal particle physics (if particle geometry active)
+    if (g.geometry.type === 'particles' && g.geometry.data) {
+      stepParticleGeometry(g, dt);
+    }
   }
+}
+
+// Returns the text-range selection as { lo, hi }, or null if no range active.
+function selRange() {
+  if (anchorPos === cursorPos) return null;
+  return { lo: Math.min(anchorPos, cursorPos), hi: Math.max(anchorPos, cursorPos) };
+}
+
+// Returns the insertion-point index nearest to a mouse position.
+function glyphPosFromMouse(mx, my) {
+  if (glyphs.length === 0) return 0;
+  let best = null, bestDist = Infinity;
+  for (const g of glyphs) {
+    if (g.char === '\n') continue;
+    const d = Math.hypot(g.x + g.w * 0.5 - mx, g.y - PARAMS.fontPt * 0.4 - my);
+    if (d < bestDist) { bestDist = d; best = g; }
+  }
+  return best ? best.index + 1 : docText.length;
+}
+
+// Returns true if (mx, my) is within the hit region of any selected glyph.
+// Uses current visual position (g.x/y), not home, so works with drifted glyphs.
+function overSelectedGlyphs(mx, my) {
+  const pad = 10;
+  const h   = PARAMS.fontPt;
+  return selectedGlyphs.some(g => {
+    if (g.char === '\n' || g.char === ' ') return false;
+    return mx >= g.x - pad           && mx <= g.x + g.w + pad &&
+           my >= g.y - h * 0.85 - pad && my <= g.y + h * 0.15 + pad;
+  });
 }
 
 // ── Cursor helpers ─────────────────────────────────────────────────────────────
 function cursorBaseline() {
   const lineH = PARAMS.fontPt * LINE_H_MULT;
-  if (glyphs.length === 0) return { x: justifyX(0), y: MARGIN + PARAMS.fontPt };
+  if (glyphs.length === 0) return { x: layoutOriginX, y: layoutOriginY ?? MARGIN + PARAMS.fontPt };
 
-  // Use visual position (g.x / g.y) so cursor follows drifted glyphs.
-  const right = glyphs.find(g => g.index === cursorPos);
-  if (right && right.char !== '\n') return { x: right.x, y: right.y };
-
+  // Use home positions so the cursor tracks typographic layout, not visual drift.
+  // Prefer the glyph to the LEFT (cursor at its right edge — "insertion is after this char").
   const left = glyphs.find(g => g.index === cursorPos - 1);
   if (left) {
     if (left.char === '\n') {
-      // Start of next line — find the first glyph there, or fall back to home.
+      // Cursor is at the start of the next line.
       const first = glyphs.find(g => g.index >= cursorPos && g.char !== '\n');
-      if (first) return { x: first.x, y: first.y };
+      if (first) return { x: first.homeX, y: first.homeY };
       return { x: justifyX(0), y: left.homeY + lineH };
     }
-    return { x: left.x + left.w, y: left.y };
+    return { x: left.homeX + left.w, y: left.homeY };
   }
+
+  const right = glyphs.find(g => g.index === cursorPos);
+  if (right && right.char !== '\n') return { x: right.homeX, y: right.homeY };
+
   return { x: justifyX(0), y: MARGIN + PARAMS.fontPt };
 }
 
@@ -665,14 +1503,14 @@ function loop(ts) {
   ctx.fillStyle = PARAMS.background;
   ctx.fillRect(0, 0, W, H);
 
-  // Draw glyphs — each with its own transform and material
+  // Draw glyphs
   ctx.font         = fontStr();
   ctx.textBaseline = 'alphabetic';
 
   // Cursor target highlight: only in type mode.
   const cursorTarget = (editorMode === 'type' && document.activeElement === canvas)
-    ? (glyphs.find(g => g.index === cursorPos     && g.char !== '\n' && g.char !== ' ') ||
-       glyphs.find(g => g.index === cursorPos - 1 && g.char !== '\n' && g.char !== ' '))
+    ? (glyphs.find(g => g.index === cursorPos - 1 && g.char !== '\n' && g.char !== ' ') ||
+       glyphs.find(g => g.index === cursorPos     && g.char !== '\n' && g.char !== ' '))
     : null;
 
   // Nearest glyph to mouse — recomputed every frame so it tracks drifting glyphs.
@@ -687,25 +1525,54 @@ function loop(ts) {
     hoveredGlyph = hBest;
   }
 
+  // Text-range selection (Type mode only)
+  const sr = editorMode === 'type' ? selRange() : null;
+
   for (const g of glyphs) {
     if (g.char === '\n' || g.char === ' ') continue;
 
     const m          = g.material;
     const isSelected = selectedIds.has(g.id);
+    const isInRange  = sr !== null && g.index >= sr.lo && g.index < sr.hi;
     const isTarget   = g === cursorTarget;
     const isHovered  = g === hoveredGlyph && !isSelected;
 
-    if (g.rotation !== 0) {
+    // ── Particle geometry path ──────────────────────────────────────────────
+    if (g.geometry.type === 'particles') {
+      // Highlight rect at glyph's current (possibly drifted) position.
+      const r = [g.x - 2, g.y - PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
+      ctx.globalCompositeOperation = 'source-over';
+      if (isSelected) {
+        ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
+        ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      } else if (isInRange) {
+        ctx.fillStyle = '#5ce'; ctx.globalAlpha = 0.4; ctx.fillRect(...r);
+      } else if (isTarget) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+      } else if (isHovered) {
+        ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+        ctx.strokeStyle = '#7af'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      drawParticleGeometry(g);
+      continue;
+    }
+
+    // ── Outline2d geometry path ─────────────────────────────────────────────
+    if (g.rotation !== 0 || g.scale !== 1) {
       const cx = g.x + g.w * 0.5;
       const cy = g.y - PARAMS.fontPt * 0.4;
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(g.rotation);
+      if (g.rotation !== 0) ctx.rotate(g.rotation);
+      if (g.scale   !== 1) ctx.scale(g.scale, g.scale);
       const r = [-g.w * 0.5 - 2, -PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
       ctx.globalCompositeOperation = 'source-over';
       if (isSelected) {
         ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
         ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      } else if (isInRange) {
+        ctx.fillStyle = '#5ce'; ctx.globalAlpha = 0.4; ctx.fillRect(...r);
       } else if (isTarget) {
         ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
       } else if (isHovered) {
@@ -723,6 +1590,8 @@ function loop(ts) {
       if (isSelected) {
         ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
         ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+      } else if (isInRange) {
+        ctx.fillStyle = '#5ce'; ctx.globalAlpha = 0.4; ctx.fillRect(...r);
       } else if (isTarget) {
         ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
       } else if (isHovered) {
@@ -754,63 +1623,164 @@ function loop(ts) {
     ctx.fillText('click to start typing', MARGIN, MARGIN + PARAMS.fontPt * 0.3);
   }
 
+  // Canvas boundary — drawn last so it's always visible over glyphs.
+  ctx.globalAlpha              = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = 'rgba(180, 40, 40, 0.7)';
+  ctx.lineWidth   = 1.5;
+  ctx.strokeRect(0.75, 0.75, W - 1.5, H - 1.5);
+
   requestAnimationFrame(loop);
 }
 
 // ── Input: keyboard ────────────────────────────────────────────────────────────
-canvas.addEventListener('keydown', e => {
+// Listen on document so sidebar interactions (sliders, dropdowns, buttons) don't
+// steal focus and break typing/deleting. Guard skips the handler when a panel
+// form element is actively focused.
+document.addEventListener('keydown', e => {
+  const ae = document.activeElement;
+  if (ae && ae !== canvas && ae.tagName !== 'BODY') return;
+
   const mod = e.ctrlKey || e.metaKey;
+
+  if (mod && e.key === 'z') { if (e.shiftKey) redo(); else undo(); e.preventDefault(); return; }
+  if (mod && e.key === 'y') { redo(); e.preventDefault(); return; }
 
   if (e.key === 'Escape') {
     if (editorMode === 'select') { selectGlyphs([]); e.preventDefault(); }
     return;
   }
 
-  if (editorMode === 'select') return; // Keyboard editing disabled in select mode
+  if (editorMode === 'select') {
+    // Backspace / Delete removes the selected span from the document.
+    if ((e.key === 'Backspace' || e.key === 'Delete') && selectedGlyphs.length > 0) {
+      pushUndo();
+      const indices = selectedGlyphs.map(g => g.index);
+      const lo = Math.min(...indices);
+      const hi = Math.max(...indices) + 1;
+      docText = docText.slice(0, lo) + docText.slice(hi);
+      cursorPos = anchorPos = lo;
+      selectGlyphs([]);
+      layout(); resetBlink(); e.preventDefault();
+    }
+    return;
+  }
+
+  // Ctrl/Cmd+A: select all text
+  if (mod && e.key === 'a') {
+    anchorPos = 0; cursorPos = docText.length;
+    resetBlink(); e.preventDefault(); return;
+  }
 
   if (e.key === 'Backspace') {
-    if (mod) {
-      let i = cursorPos;
-      while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
-      while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
-      docText = docText.slice(0, i) + docText.slice(cursorPos);
-      cursorPos = i;
-    } else if (cursorPos > 0) {
-      docText = docText.slice(0, cursorPos - 1) + docText.slice(cursorPos);
-      cursorPos--;
+    pushUndo();
+    if (selectedGlyphs.length > 1) {
+      // Multi-glyph selection (word / line / all): delete the selected span.
+      const indices = selectedGlyphs.map(g => g.index);
+      const lo = Math.min(...indices);
+      const hi = Math.max(...indices) + 1;
+      docText = docText.slice(0, lo) + docText.slice(hi);
+      cursorPos = anchorPos = lo;
+      selectGlyphs([]);
+    } else {
+      const sr = selRange();
+      if (sr) {
+        docText = docText.slice(0, sr.lo) + docText.slice(sr.hi);
+        cursorPos = anchorPos = sr.lo;
+      } else if (mod) {
+        let i = cursorPos;
+        while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
+        while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
+        docText = docText.slice(0, i) + docText.slice(cursorPos);
+        cursorPos = anchorPos = i;
+      } else if (cursorPos > 0) {
+        docText = docText.slice(0, cursorPos - 1) + docText.slice(cursorPos);
+        cursorPos--; anchorPos = cursorPos;
+      }
     }
     layout(); resetBlink(); e.preventDefault();
 
   } else if (e.key === 'Delete') {
-    if (cursorPos < docText.length) {
-      docText = docText.slice(0, cursorPos) + docText.slice(cursorPos + 1);
+    pushUndo();
+    if (selectedGlyphs.length > 1) {
+      const indices = selectedGlyphs.map(g => g.index);
+      const lo = Math.min(...indices);
+      const hi = Math.max(...indices) + 1;
+      docText = docText.slice(0, lo) + docText.slice(hi);
+      cursorPos = anchorPos = lo;
+      selectGlyphs([]);
+    } else {
+      const sr = selRange();
+      if (sr) {
+        docText = docText.slice(0, sr.lo) + docText.slice(sr.hi);
+        cursorPos = anchorPos = sr.lo;
+      } else if (cursorPos < docText.length) {
+        docText = docText.slice(0, cursorPos) + docText.slice(cursorPos + 1);
+      }
     }
     layout(); resetBlink(); e.preventDefault();
 
   } else if (e.key === 'Enter') {
-    docText = docText.slice(0, cursorPos) + '\n' + docText.slice(cursorPos);
-    cursorPos++;
+    pushUndo();
+    const sr = selRange();
+    if (sr) {
+      docText = docText.slice(0, sr.lo) + '\n' + docText.slice(sr.hi);
+      cursorPos = anchorPos = sr.lo + 1;
+    } else {
+      docText = docText.slice(0, cursorPos) + '\n' + docText.slice(cursorPos);
+      cursorPos++; anchorPos = cursorPos;
+    }
     layout(); resetBlink(); e.preventDefault();
 
   } else if (e.key === 'ArrowLeft') {
-    if (mod) {
-      let i = cursorPos;
-      while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
-      while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
-      cursorPos = i;
+    if (e.shiftKey) {
+      // Extend selection leftward
+      if (mod) {
+        let i = cursorPos;
+        while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
+        while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
+        cursorPos = i;
+      } else {
+        cursorPos = Math.max(0, cursorPos - 1);
+      }
+    } else if (selRange()) {
+      cursorPos = anchorPos = Math.min(anchorPos, cursorPos); // collapse to left
     } else {
-      cursorPos = Math.max(0, cursorPos - 1);
+      if (mod) {
+        let i = cursorPos;
+        while (i > 0 && (docText[i - 1] === ' ' || docText[i - 1] === '\n')) i--;
+        while (i > 0 && docText[i - 1] !== ' ' && docText[i - 1] !== '\n') i--;
+        cursorPos = i;
+      } else {
+        cursorPos = Math.max(0, cursorPos - 1);
+      }
+      anchorPos = cursorPos;
     }
     resetBlink(); e.preventDefault();
 
   } else if (e.key === 'ArrowRight') {
-    if (mod) {
-      let i = cursorPos;
-      while (i < docText.length && (docText[i] === ' ' || docText[i] === '\n')) i++;
-      while (i < docText.length && docText[i] !== ' ' && docText[i] !== '\n') i++;
-      cursorPos = i;
+    if (e.shiftKey) {
+      // Extend selection rightward
+      if (mod) {
+        let i = cursorPos;
+        while (i < docText.length && (docText[i] === ' ' || docText[i] === '\n')) i++;
+        while (i < docText.length && docText[i] !== ' ' && docText[i] !== '\n') i++;
+        cursorPos = i;
+      } else {
+        cursorPos = Math.min(docText.length, cursorPos + 1);
+      }
+    } else if (selRange()) {
+      cursorPos = anchorPos = Math.max(anchorPos, cursorPos); // collapse to right
     } else {
-      cursorPos = Math.min(docText.length, cursorPos + 1);
+      if (mod) {
+        let i = cursorPos;
+        while (i < docText.length && (docText[i] === ' ' || docText[i] === '\n')) i++;
+        while (i < docText.length && docText[i] !== ' ' && docText[i] !== '\n') i++;
+        cursorPos = i;
+      } else {
+        cursorPos = Math.min(docText.length, cursorPos + 1);
+      }
+      anchorPos = cursorPos;
     }
     resetBlink(); e.preventDefault();
 
@@ -818,17 +1788,26 @@ canvas.addEventListener('keydown', e => {
     let i = cursorPos - 1;
     while (i >= 0 && docText[i] !== '\n') i--;
     cursorPos = i + 1;
+    if (!e.shiftKey) anchorPos = cursorPos;
     resetBlink(); e.preventDefault();
 
   } else if (e.key === 'End') {
     let i = cursorPos;
     while (i < docText.length && docText[i] !== '\n') i++;
     cursorPos = i;
+    if (!e.shiftKey) anchorPos = cursorPos;
     resetBlink(); e.preventDefault();
 
   } else if (e.key.length === 1 && !mod) {
-    docText = docText.slice(0, cursorPos) + e.key + docText.slice(cursorPos);
-    cursorPos++;
+    pushUndo();
+    const sr = selRange();
+    if (sr) {
+      docText = docText.slice(0, sr.lo) + e.key + docText.slice(sr.hi);
+      cursorPos = anchorPos = sr.lo + 1;
+    } else {
+      docText = docText.slice(0, cursorPos) + e.key + docText.slice(cursorPos);
+      cursorPos++; anchorPos = cursorPos;
+    }
     layout(); resetBlink(); e.preventDefault();
   }
 });
@@ -837,48 +1816,84 @@ canvas.addEventListener('keydown', e => {
 canvas.addEventListener('paste', e => {
   const text = (e.clipboardData || window.clipboardData).getData('text/plain');
   if (!text) return;
-  docText = docText.slice(0, cursorPos) + text + docText.slice(cursorPos);
-  cursorPos += text.length;
+  pushUndo();
+  const sr = selRange();
+  if (sr) {
+    docText = docText.slice(0, sr.lo) + text + docText.slice(sr.hi);
+    cursorPos = anchorPos = sr.lo + text.length;
+  } else {
+    docText = docText.slice(0, cursorPos) + text + docText.slice(cursorPos);
+    cursorPos += text.length; anchorPos = cursorPos;
+  }
   layout(); resetBlink();
   e.preventDefault();
 });
 
-// ── Input: click ───────────────────────────────────────────────────────────────
+// ── Input: click (multi-click scene-graph navigation) ──────────────────────────
+// Works in both Type and Select modes:
+//   1 click  = nearest glyph
+//   2 clicks = word
+//   3 clicks = sentence (if punctuation present) or whole line
+//   4 clicks = all text
+// Each click fires immediately and upgrades the previous selection.
+// In Type mode a single click also moves the text cursor to after the clicked glyph.
+let _clickCount  = 0;
+let _clickAnchor = null;  // glyph from the first click in this sequence
+let _clickTimer  = null;
+const MULTI_CLICK_MS = 350;
+
+// ── Drag state ─────────────────────────────────────────────────────────────────
+let _dragActive  = false;
+let _dragLastX   = 0;
+let _dragLastY   = 0;
+let _didDrag     = false;   // suppresses the click event that follows a drag
+const DRAG_THRESHOLD = 4;   // px of movement before drag is committed
+
 canvas.addEventListener('click', e => {
   canvas.focus();
+  // Suppress click if a drag just finished.
+  if (_didDrag) { _didDrag = false; return; }
+
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
 
-  if (editorMode === 'select') {
-    const g = nearestGlyph(mx, my);
-    selectGlyphs(g ? [g] : []);
+  clearTimeout(_clickTimer);
+  _clickCount++;
+
+  if (_clickCount === 1) {
+    _clickAnchor = nearestGlyph(mx, my);
+    // Treat as blank-canvas click if no glyph lands within its bounding box.
+    if (_clickAnchor) {
+      const h = PARAMS.fontPt, pad = Math.max(10, h * 0.2);
+      const hit = mx >= _clickAnchor.x - pad && mx <= _clickAnchor.x + _clickAnchor.w + pad &&
+                  my >= _clickAnchor.y - h * 0.85 - pad && my <= _clickAnchor.y + h * 0.15 + pad;
+      if (!hit) _clickAnchor = null;
+    }
+    // Blank-canvas click in Type mode: move layout origin to click point.
+    if (!_clickAnchor && editorMode === 'type') {
+      layoutOriginX = Math.max(MARGIN * 0.5, Math.min(mx, W - MARGIN));
+      layoutOriginY = Math.max(PARAMS.fontPt, Math.min(my, H - PARAMS.fontPt * 0.3));
+      layout();
+    }
+    selectGlyphs(_clickAnchor ? [_clickAnchor] : []);
+    // Also position the text cursor in Type mode.
+    if (editorMode === 'type') {
+      cursorPos = anchorPos = _clickAnchor ? _clickAnchor.index + 1 : docText.length;
+    }
+  } else if (_clickCount === 2) {
+    if (_clickAnchor) selectWord(_clickAnchor);
+  } else if (_clickCount === 3) {
+    if (_clickAnchor) selectSentenceOrLine(_clickAnchor);
+  } else {
+    selectGlyphs(glyphs.filter(h => h.char !== '\n' && h.char !== ' '));
+    _clickCount = 0;
+    resetBlink();
     return;
   }
 
-  // type mode: position cursor
-  if (glyphs.length === 0) { cursorPos = 0; resetBlink(); return; }
-  let best = null, bestDist = Infinity;
-  for (const g of glyphs) {
-    if (g.char === '\n') continue;
-    const gx = g.x + g.w * 0.5;
-    const gy = g.y - PARAMS.fontPt * 0.4;
-    const d  = Math.hypot(gx - mx, gy - my);
-    if (d < bestDist) { bestDist = d; best = g; }
-  }
-  cursorPos = best
-    ? (mx < best.x + best.w * 0.5 ? best.index : best.index + 1)
-    : docText.length;
+  _clickTimer = setTimeout(() => { _clickCount = 0; _clickAnchor = null; }, MULTI_CLICK_MS);
   resetBlink();
-});
-
-// Double-click selects the whole word (select mode only)
-canvas.addEventListener('dblclick', e => {
-  if (editorMode !== 'select') return;
-  const rect = canvas.getBoundingClientRect();
-  const g = nearestGlyph(e.clientX - rect.left, e.clientY - rect.top);
-  if (g) selectWord(g);
-  e.preventDefault();
 });
 
 canvas.addEventListener('mousemove', e => {
@@ -886,21 +1901,71 @@ canvas.addEventListener('mousemove', e => {
   inputState.x = e.clientX - r.left;
   inputState.y = e.clientY - r.top;
   inputState.onCanvas = true;
+
+  if (_dragActive && inputState.down) {
+    const dx = inputState.x - _dragLastX;
+    const dy = inputState.y - _dragLastY;
+    if (!_didDrag && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!_didDrag) {
+      _didDrag    = true;
+      _clickCount = 0;        // reset multi-click so next click starts fresh
+      clearTimeout(_clickTimer);
+    }
+    _dragLastX = inputState.x;
+    _dragLastY = inputState.y;
+    for (const g of selectedGlyphs) {
+      g.x          += dx;
+      g.y          += dy;
+      g.dynamics.vx = 0;      // prevent accumulated forces from fighting the drag
+      g.dynamics.vy = 0;
+    }
+  }
+
+  // Cursor: 'grabbing' while dragging, 'grab' when hovering over selection.
+  if (_dragActive && _didDrag) {
+    canvas.style.cursor = 'grabbing';
+  } else if (selectedGlyphs.length > 0 && overSelectedGlyphs(inputState.x, inputState.y)) {
+    canvas.style.cursor = 'grab';
+  } else {
+    canvas.style.cursor = editorMode === 'type' ? 'text' : 'default';
+  }
 });
 canvas.addEventListener('mouseleave', () => { inputState.onCanvas = false; });
-canvas.addEventListener('mousedown', () => { inputState.down = true;  canvas.focus(); });
-canvas.addEventListener('mouseup',   () => { inputState.down = false; });
+canvas.addEventListener('mousedown', e => {
+  inputState.down = true;
+  canvas.focus();
+  // Start a potential drag if the mouse is over the current selection.
+  if (selectedGlyphs.length > 0) {
+    const r  = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const my = e.clientY - r.top;
+    if (overSelectedGlyphs(mx, my)) {
+      pushUndo();
+      _dragActive = true;
+      _dragLastX  = mx;
+      _dragLastY  = my;
+      _didDrag    = false;
+    }
+  }
+});
+canvas.addEventListener('mouseup', () => {
+  inputState.down = false;
+  _dragActive = false;
+  canvas.style.cursor = editorMode === 'type' ? 'text' : 'default';
+});
 
 // ── Panel wiring ───────────────────────────────────────────────────────────────
 document.getElementById('sFontFamily').addEventListener('change', e => {
-  PARAMS.fontFamily = e.target.value; layout();
+  PARAMS.fontFamily = e.target.value;
+  layout();
+  rebuildParticleGeometries();
 });
 
 document.getElementById('justifyGroup').addEventListener('click', e => {
   const btn = e.target.closest('.jbtn');
   if (!btn) return;
   PARAMS.justify = btn.dataset.val;
-  document.querySelectorAll('.jbtn').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('#justifyGroup .jbtn').forEach(b => b.classList.toggle('active', b === btn));
   layout();
 });
 
@@ -910,6 +1975,7 @@ sFontPt.addEventListener('input', () => {
   PARAMS.fontPt = parseInt(sFontPt.value);
   vFontPt.textContent = PARAMS.fontPt + ' pt';
   layout();
+  rebuildParticleGeometries();
 });
 
 document.getElementById('cText').addEventListener('input', e => { PARAMS.color      = e.target.value; });

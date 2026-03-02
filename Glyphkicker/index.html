@@ -89,6 +89,12 @@ select:focus { outline: none; border-color: #336; }
   font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
   color: #333; margin: 8px 0 4px; border-top: 1px solid #191919; padding-top: 6px;
 }
+#smTriggerInput {
+  flex: 1; background: #181818; color: #eee;
+  border: 1px solid #2a2a2a; padding: 3px 5px;
+  font-size: 11px; outline: none;
+}
+#smTriggerInput:focus { border-color: #336; }
 </style>
 </head>
 <body>
@@ -166,6 +172,15 @@ select:focus { outline: none; border-color: #336; }
     </div>
     <div class="section-label">Geometry</div>
     <div id="geoPanel"></div>
+
+    <div class="section-label">Agent</div>
+    <div id="agentPanel">
+      <div style="display:flex;gap:4px;margin-top:2px">
+        <input type="text" id="smTriggerInput" placeholder="message type">
+        <button id="smSendBtn" class="jbtn" style="flex:0 0 42px">Send</button>
+      </div>
+      <div style="font-size:9px;color:#444;margin-top:3px">sends to selected glyphs</div>
+    </div>
   </div>
 </div>
 
@@ -353,6 +368,12 @@ function makeGlyph(char, index, hx, hy, w) {
     // Behaviour state — keyed by Symbol, owned by individual behaviours
     _state: new Map(),
 
+    // Agent mailbox — messages queue here and are drained each frame by AgentEngine
+    mailbox: [],
+
+    // Optional state machine (set by makeStateMachine)
+    stateMachine: null,
+
     // Deterministic RNG seeded from this glyph's id
     rng: makeRNG(id),
   };
@@ -362,32 +383,36 @@ function makeGlyph(char, index, hx, hy, w) {
 // Copy all visual/dynamic state from a previous glyph agent to a newly-built one.
 // Raw: dst keeps src's exact visual position (for same-character identity).
 function transferGlyph(src, dst) {
-  dst.id         = src.id;
-  dst.x          = src.x;
-  dst.y          = src.y;
-  dst.rotation   = src.rotation;
-  dst.scale      = src.scale;
-  dst.dynamics   = src.dynamics;
-  dst.material   = src.material;
-  dst.geometry   = src.geometry;   // preserve particle state across layout reflows
-  dst._state     = src._state;
-  dst.rng        = src.rng;
-  dst.behaviours = src.behaviours;
+  dst.id           = src.id;
+  dst.x            = src.x;
+  dst.y            = src.y;
+  dst.rotation     = src.rotation;
+  dst.scale        = src.scale;
+  dst.dynamics     = src.dynamics;
+  dst.material     = src.material;
+  dst.geometry     = src.geometry;   // preserve particle state across layout reflows
+  dst._state       = src._state;
+  dst.rng          = src.rng;
+  dst.behaviours   = src.behaviours;
+  dst.stateMachine = src.stateMachine;
+  dst.mailbox      = [];
 }
 // Relative: dst snaps to its new home while preserving any drift offset from src.
 // Use this when the glyph's home position has shifted (insertion/deletion of neighbours).
 function transferGlyphRelative(src, dst) {
-  dst.id         = src.id;
-  dst.x          = dst.homeX + (src.x - src.homeX);
-  dst.y          = dst.homeY + (src.y - src.homeY);
-  dst.rotation   = src.rotation;
-  dst.scale      = src.scale;
-  dst.dynamics   = src.dynamics;
-  dst.material   = src.material;
-  dst.geometry   = src.geometry;
-  dst._state     = src._state;
-  dst.rng        = src.rng;
-  dst.behaviours = src.behaviours;
+  dst.id           = src.id;
+  dst.x            = dst.homeX + (src.x - src.homeX);
+  dst.y            = dst.homeY + (src.y - src.homeY);
+  dst.rotation     = src.rotation;
+  dst.scale        = src.scale;
+  dst.dynamics     = src.dynamics;
+  dst.material     = src.material;
+  dst.geometry     = src.geometry;
+  dst._state       = src._state;
+  dst.rng          = src.rng;
+  dst.behaviours   = src.behaviours;
+  dst.stateMachine = src.stateMachine;
+  dst.mailbox      = [];
 }
 
 // Set initial position of a brand-new glyph by interpolating between its
@@ -549,6 +574,7 @@ function layout() {
 
   prevDocText = docText;
   glyphs = next;
+  AgentEngine.pruneTimers();
   // Re-sync selected glyph references — layout rebuilds the array but transferGlyph preserves ids.
   selectedGlyphs = glyphs.filter(g => selectedIds.has(g.id));
   if (editorMode === 'select') {
@@ -906,6 +932,261 @@ const BEHAVIOUR_DEFS = [
   },
 ];
 
+// ── State Machine ───────────────────────────────────────────────────────────────
+// makeStateMachine(statesDef, initialState) → SM object.
+// statesDef: { stateName: { behaviours[], onEnter, onExit, onMessage } }
+// The SM auto-injects/removes its behaviours on state transitions.
+// User-added behaviours (in g.behaviours before SM attach) are never touched.
+function makeStateMachine(statesDef, initialState) {
+  let _current  = initialState;
+  let _injected = [];   // behaviour instances injected by the current state
+
+  function _transition(g, nextState, bCtx) {
+    if (nextState === _current) return;
+    const exitDef  = statesDef[_current];
+    const enterDef = statesDef[nextState];
+    if (!enterDef) { console.warn('SM: unknown state', nextState); return; }
+
+    // Exit: call onExit, remove injected behaviours
+    if (exitDef && exitDef.onExit) exitDef.onExit(g, bCtx);
+    for (const inst of _injected) {
+      const idx = g.behaviours.indexOf(inst);
+      if (idx !== -1) g.behaviours.splice(idx, 1);
+    }
+    _injected = [];
+
+    _current = nextState;
+
+    // Enter: inject state behaviours, then call onEnter
+    if (enterDef.behaviours) {
+      for (const bSpec of enterDef.behaviours) {
+        const inst = { type: bSpec.type, params: { ...bSpec.type.defaults, ...bSpec.params } };
+        g.behaviours.push(inst);
+        _injected.push(inst);
+      }
+    }
+    if (enterDef.onEnter) enterDef.onEnter(g, bCtx);
+  }
+
+  return {
+    // Called once after attaching SM to a glyph (bCtx may be null during pre-frame init)
+    init(g, bCtx) {
+      const def = statesDef[_current];
+      if (def && def.behaviours) {
+        for (const bSpec of def.behaviours) {
+          const inst = { type: bSpec.type, params: { ...bSpec.type.defaults, ...bSpec.params } };
+          g.behaviours.push(inst);
+          _injected.push(inst);
+        }
+      }
+      if (def && def.onEnter) def.onEnter(g, bCtx);
+    },
+    // Called by AgentEngine phase 3 for each message in g.mailbox
+    receive(g, msg, bCtx) {
+      const def = statesDef[_current];
+      if (!def || !def.onMessage) return;
+      const next = def.onMessage(g, msg, bCtx);
+      if (next && next !== _current) _transition(g, next, bCtx);
+    },
+    currentState() { return _current; },
+  };
+}
+
+// ── AgentEngine ─────────────────────────────────────────────────────────────────
+// Singleton that runs the 7-phase agent loop, replacing stepDynamics().
+// Phases 5-7 are the v1 physics (unchanged); phases 1-4 are the new agent layer.
+const AgentEngine = (() => {
+  let _outbox  = [];
+  const _timers = [];    // { targetId, type, data, fireAt }
+  const _SYS_NEAR_SYM = Symbol('_sysNear');
+  const NEAR_RADIUS   = 120;   // px for pointer-near system messages
+
+  // Queue a message to one glyph (by reference or id string) — delivers next frame
+  function send(target, type, data, fromId) {
+    const id = typeof target === 'string' ? target : target.id;
+    _outbox.push({ targetId: id, type, data: data || {}, fromId: fromId || null });
+  }
+
+  // Queue to all non-space glyphs within radius px of fromGlyph — delivers next frame
+  function broadcast(fromGlyph, radius, type, data) {
+    const cx = fromGlyph.x + fromGlyph.w * 0.5;
+    const cy = fromGlyph.y - PARAMS.fontPt * 0.4;
+    for (const g of glyphs) {
+      if (g === fromGlyph || g.char === ' ' || g.char === '\n') continue;
+      const gx = g.x + g.w * 0.5;
+      const gy = g.y - PARAMS.fontPt * 0.4;
+      if (Math.hypot(gx - cx, gy - cy) <= radius) {
+        _outbox.push({ targetId: g.id, type, data: data || {}, fromId: fromGlyph.id });
+      }
+    }
+  }
+
+  // Queue to all non-space glyphs in the same word as fromGlyph
+  function sendToWord(fromGlyph, type, data) {
+    const i = fromGlyph.index;
+    let lo = i, hi = i;
+    while (lo > 0 && docText[lo - 1] !== ' ' && docText[lo - 1] !== '\n') lo--;
+    while (hi < docText.length && docText[hi] !== ' ' && docText[hi] !== '\n') hi++;
+    for (const g of glyphs) {
+      if (g === fromGlyph || g.char === ' ' || g.char === '\n') continue;
+      if (g.index >= lo && g.index < hi) {
+        _outbox.push({ targetId: g.id, type, data: data || {}, fromId: fromGlyph.id });
+      }
+    }
+  }
+
+  // Queue to all non-space glyphs on the same line as fromGlyph
+  function sendToLine(fromGlyph, type, data) {
+    const lo = docText.lastIndexOf('\n', fromGlyph.index - 1) + 1;
+    let hi = docText.indexOf('\n', fromGlyph.index);
+    if (hi === -1) hi = docText.length;
+    for (const g of glyphs) {
+      if (g === fromGlyph || g.char === ' ' || g.char === '\n') continue;
+      if (g.index >= lo && g.index < hi) {
+        _outbox.push({ targetId: g.id, type, data: data || {}, fromId: fromGlyph.id });
+      }
+    }
+  }
+
+  // Schedule a message to targetId to fire delaySeconds from now
+  function schedule(targetId, type, data, delaySeconds, bCtx) {
+    const now = bCtx ? bCtx.time : performance.now() / 1000;
+    _timers.push({ targetId, type, data: data || {}, fireAt: now + delaySeconds });
+  }
+
+  // Remove timers for glyph IDs that no longer exist in glyphs[]
+  function pruneTimers() {
+    const liveIds = new Set(glyphs.map(g => g.id));
+    for (let i = _timers.length - 1; i >= 0; i--) {
+      if (!liveIds.has(_timers[i].targetId)) _timers.splice(i, 1);
+    }
+  }
+
+  // Main per-fixed-step entry point — 7 phases
+  function processFrame(dt, bCtx) {
+    const now = bCtx.time;
+
+    // Phase 1 — Timer delivery: fire due timers → g.mailbox (immediate, this frame)
+    for (let i = _timers.length - 1; i >= 0; i--) {
+      const t = _timers[i];
+      if (now >= t.fireAt) {
+        const g = glyphs.find(h => h.id === t.targetId);
+        if (g) g.mailbox.push({ type: t.type, data: t.data, fromId: null });
+        _timers.splice(i, 1);
+      }
+    }
+
+    // Phase 2 — System messages: 'tick', 'pointer-near', 'pointer-exit'
+    //            Only dispatched to glyphs with a stateMachine.
+    for (const g of glyphs) {
+      if (!g.stateMachine) continue;
+      g.mailbox.push({ type: 'tick', data: { dt }, fromId: null });
+      if (bCtx.inputState.onCanvas) {
+        const cx      = g.x + g.w * 0.5;
+        const cy      = g.y - PARAMS.fontPt * 0.4;
+        const d       = Math.hypot(bCtx.inputState.x - cx, bCtx.inputState.y - cy);
+        const wasNear = g._state.get(_SYS_NEAR_SYM) || false;
+        const isNear  = d <= NEAR_RADIUS;
+        if (isNear  && !wasNear) g.mailbox.push({ type: 'pointer-near', data: { d }, fromId: null });
+        if (!isNear && wasNear)  g.mailbox.push({ type: 'pointer-exit', data: { d }, fromId: null });
+        g._state.set(_SYS_NEAR_SYM, isNear);
+      }
+    }
+
+    // Phase 3 — Mailbox processing: drain each g.mailbox.
+    //            Sends during processing go to _outbox (one-frame delivery delay).
+    for (const g of glyphs) {
+      if (g.mailbox.length === 0) continue;
+      if (!g.stateMachine) { g.mailbox.length = 0; continue; }
+      const msgs = g.mailbox.splice(0);
+      for (const msg of msgs) {
+        g.stateMachine.receive(g, msg, bCtx);
+      }
+    }
+
+    // Phase 4 — Flush _outbox: deliver entries to target mailboxes.
+    //            These will be processed in the NEXT frame's phase 3.
+    if (_outbox.length > 0) {
+      const byId = new Map(glyphs.map(g => [g.id, g]));
+      for (const entry of _outbox) {
+        const tg = byId.get(entry.targetId);
+        if (tg) tg.mailbox.push({ type: entry.type, data: entry.data, fromId: entry.fromId });
+      }
+      _outbox.length = 0;
+    }
+
+    // Phase 5 — Tick behaviours (v1 unchanged)
+    for (const g of glyphs) {
+      for (const inst of g.behaviours) {
+        inst.type.apply(g, dt, bCtx, inst.params);
+      }
+    }
+
+    // Phase 6 — Dynamics integration + damping (v1 unchanged)
+    for (const g of glyphs) {
+      const d = g.dynamics;
+      g.x        += d.vx         * dt;
+      g.y        += d.vy         * dt;
+      g.rotation += d.angularVel * dt;
+      d.vx        *= d.damping;
+      d.vy        *= d.damping;
+      d.angularVel *= d.damping;
+    }
+
+    // Phase 7 — Particles (v1 unchanged)
+    for (const g of glyphs) {
+      if (g.geometry.type === 'particles' && g.geometry.data) {
+        stepParticleGeometry(g, dt);
+      }
+    }
+  }
+
+  return { send, broadcast, sendToWord, sendToLine, schedule, processFrame, pruneTimers };
+})();
+
+// ── Contagion State Machine — demo ──────────────────────────────────────────────
+// idle → receives 'excited' → excited
+// excited → onEnter: broadcasts 'excited' (80px radius), schedules 'calm-down' (3s)
+// excited → receives 'calm-down' → idle
+// In excited: Shake + Flicker auto-activated by SM behaviour injection.
+const contagionStates = {
+  idle: {
+    behaviours: [],
+    onEnter(g, bCtx)  {},
+    onExit(g, bCtx)   {},
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'excited') return 'excited';
+    },
+  },
+  excited: {
+    behaviours: [
+      { type: Shake,   params: { amplitude: 8, speed: 20 } },
+      { type: Flicker, params: { rate: 6, min: 0.1 } },
+    ],
+    onEnter(g, bCtx) {
+      if (!bCtx) return;   // guard: null bCtx during pre-frame init
+      bCtx.engine.broadcast(g, 80, 'excited', {});
+      bCtx.engine.schedule(g.id, 'calm-down', {}, 3.0, bCtx);
+    },
+    onExit(g, bCtx)   {},
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'calm-down') return 'idle';
+      // Ignore extra 'excited' while already excited
+    },
+  },
+};
+
+// Attach a fresh contagion SM to every printable glyph.
+// Usage: attachContagion(glyphs)  — call from the browser console.
+function attachContagion(gs) {
+  for (const g of gs) {
+    if (g.char === ' ' || g.char === '\n') continue;
+    const sm = makeStateMachine(contagionStates, 'idle');
+    g.stateMachine = sm;
+    sm.init(g, null);   // null bCtx: guard in onEnter prevents broadcasts during init
+  }
+}
+
 // ── Selection & behaviour authoring ─────────────────────────────────────────────
 function nearestGlyph(mx, my) {
   let best = null, bestD = Infinity;
@@ -1016,6 +1297,11 @@ function updateBehaviourPanel() {
     : `${selectedGlyphs.length} glyphs selected`;
   const behs = selectedGlyphs[0].behaviours;
   let html = `<div class="bph-sel-label">${lbl}</div>`;
+  // SM state readout — updated live each frame via #smStateDisplay in the render loop
+  if (selectedGlyphs[0].stateMachine) {
+    const stateNow = selectedGlyphs[0].stateMachine.currentState();
+    html = `<div style="font-size:10px;color:#666;margin-bottom:4px">state: <span id="smStateDisplay" style="color:#7af">${stateNow}</span></div>` + html;
+  }
   for (let i = 0; i < behs.length; i++) {
     const inst = behs[i];
     const def  = BEHAVIOUR_DEFS.find(d => d.type === inst.type);
@@ -1490,9 +1776,9 @@ function loop(ts) {
   const elapsed = lastTs !== null ? Math.min((ts - lastTs) / 1000, 0.1) : 0;
   lastTs = ts;
   accumulator += elapsed;
-  const bCtx = { glyphs, inputState, time: ts / 1000 };
+  const bCtx = { glyphs, inputState, time: ts / 1000, engine: AgentEngine };
   while (accumulator >= FIXED_DT) {
-    stepDynamics(FIXED_DT, bCtx);
+    AgentEngine.processFrame(FIXED_DT, bCtx);
     accumulator -= FIXED_DT;
   }
 
@@ -1629,6 +1915,15 @@ function loop(ts) {
   ctx.strokeStyle = 'rgba(180, 40, 40, 0.7)';
   ctx.lineWidth   = 1.5;
   ctx.strokeRect(0.75, 0.75, W - 1.5, H - 1.5);
+
+  // Live SM state display — updated every frame when in select mode
+  if (editorMode === 'select' && selectedGlyphs.length > 0) {
+    const el = document.getElementById('smStateDisplay');
+    if (el) {
+      const sm = selectedGlyphs[0].stateMachine;
+      el.textContent = sm ? sm.currentState() : '—';
+    }
+  }
 
   requestAnimationFrame(loop);
 }
@@ -1993,6 +2288,14 @@ document.getElementById('bAdd').addEventListener('change', function() {
   if (!this.value) return;
   addBehaviour(this.value);
   this.value = '';
+});
+
+// ── Send agent message ───────────────────────────────────────────────────────────
+document.getElementById('smSendBtn').addEventListener('click', () => {
+  const inp  = document.getElementById('smTriggerInput');
+  const type = inp.value.trim();
+  if (!type || selectedGlyphs.length === 0) return;
+  for (const g of selectedGlyphs) AgentEngine.send(g, type, {}, 'user');
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────────

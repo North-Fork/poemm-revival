@@ -150,6 +150,9 @@ select:focus { outline: none; border-color: #336; }
     <button class="mbtn"        data-mode="select">Select</button>
   </div>
 
+  <div class="section-label">Agent</div>
+  <button id="contagionBtn" class="jbtn" style="width:100%;margin-top:2px">Attach Contagion</button>
+
   <div id="selectionPanel" style="display:none">
     <div class="section-label">Behaviours</div>
     <div id="bPanel"></div>
@@ -989,6 +992,15 @@ function makeStateMachine(statesDef, initialState) {
       if (next && next !== _current) _transition(g, next, bCtx);
     },
     currentState() { return _current; },
+    // Remove injected behaviours and detach SM from glyph
+    detach(g) {
+      for (const inst of _injected) {
+        const idx = g.behaviours.indexOf(inst);
+        if (idx !== -1) g.behaviours.splice(idx, 1);
+      }
+      _injected = [];
+      g.stateMachine = null;
+    },
   };
 }
 
@@ -1177,13 +1189,19 @@ const contagionStates = {
 };
 
 // Attach a fresh contagion SM to every printable glyph.
-// Usage: attachContagion(glyphs)  — call from the browser console.
 function attachContagion(gs) {
   for (const g of gs) {
     if (g.char === ' ' || g.char === '\n') continue;
     const sm = makeStateMachine(contagionStates, 'idle');
     g.stateMachine = sm;
     sm.init(g, null);   // null bCtx: guard in onEnter prevents broadcasts during init
+  }
+}
+
+// Detach contagion SM from every glyph (removes injected behaviours).
+function detachContagion(gs) {
+  for (const g of gs) {
+    if (g.stateMachine) g.stateMachine.detach(g);
   }
 }
 
@@ -2288,6 +2306,20 @@ document.getElementById('bAdd').addEventListener('change', function() {
   if (!this.value) return;
   addBehaviour(this.value);
   this.value = '';
+});
+
+// ── Contagion toggle ─────────────────────────────────────────────────────────────
+document.getElementById('contagionBtn').addEventListener('click', function() {
+  const anyHasSM = glyphs.some(g => g.stateMachine);
+  if (anyHasSM) {
+    detachContagion(glyphs);
+    this.textContent = 'Attach Contagion';
+    this.classList.remove('active');
+  } else {
+    attachContagion(glyphs);
+    this.textContent = 'Detach Contagion';
+    this.classList.add('active');
+  }
 });
 
 // ── Send agent message ───────────────────────────────────────────────────────────

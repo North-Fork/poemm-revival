@@ -155,6 +155,37 @@ select:focus { outline: none; border-color: #336; }
   <button id="predPreyBtn"  class="jbtn" style="width:100%;margin-top:4px">Attach Pred/Prey</button>
   <div style="font-size:9px;color:#444;margin-top:3px">selected = predators, rest = prey</div>
 
+  <div id="predPreyParams" style="display:none;margin-top:6px">
+    <div class="param-row">
+      <div class="param-header">
+        <span class="param-name">Hunt radius</span>
+        <span class="param-val" id="vHuntRadius">200 px</span>
+      </div>
+      <input type="range" id="sHuntRadius" min="50" max="500" step="10" value="200">
+    </div>
+    <div class="param-row">
+      <div class="param-header">
+        <span class="param-name">Attract speed</span>
+        <span class="param-val" id="vAttractStrength">280</span>
+      </div>
+      <input type="range" id="sAttractStrength" min="50" max="800" step="10" value="280">
+    </div>
+    <div class="param-row">
+      <div class="param-header">
+        <span class="param-name">Flee speed</span>
+        <span class="param-val" id="vFleeStrength">400</span>
+      </div>
+      <input type="range" id="sFleeStrength" min="50" max="800" step="10" value="400">
+    </div>
+    <div class="param-row">
+      <div class="param-header">
+        <span class="param-name">Calm time</span>
+        <span class="param-val" id="vCalmTime">1.5 s</span>
+      </div>
+      <input type="range" id="sCalmTime" min="0.5" max="8" step="0.5" value="1.5">
+    </div>
+  </div>
+
   <div id="selectionPanel" style="display:none">
     <div class="section-label">Behaviours</div>
     <div id="bPanel"></div>
@@ -843,9 +874,26 @@ const Flee = {
     const dx = cx - s.tx, dy = cy - s.ty;
     const d  = Math.hypot(dx, dy);
     if (d < 1 || d > p.radius) return;
-    const f = p.strength * (1 - d / p.radius) / (d + 1);
-    g.dynamics.vx += (dx / d) * f * dt;
-    g.dynamics.vy += (dy / d) * f * dt;
+    // Constant-speed steering away from predator (mirrors ChasePointer)
+    g.dynamics.vx += ((dx / d) * p.strength - g.dynamics.vx) * 0.12;
+    g.dynamics.vy += ((dy / d) * p.strength - g.dynamics.vy) * 0.12;
+  },
+};
+
+/// SM-internal: steers toward mouse pointer at constant speed regardless of distance.
+// Used by predatorStates — not exposed in BEHAVIOUR_DEFS dropdown.
+const ChasePointer = {
+  sym:      Symbol('ChasePointer'),
+  defaults: { speed: 280 },
+  apply(g, dt, bCtx, p) {
+    if (!bCtx.inputState.onCanvas) return;
+    const cx = g.x + g.w * 0.5, cy = g.y - PARAMS.fontPt * 0.4;
+    const dx = bCtx.inputState.x - cx, dy = bCtx.inputState.y - cy;
+    const d  = Math.hypot(dx, dy);
+    if (d < 1) return;
+    // Blend velocity toward desired direction at constant speed (same pattern as Drift)
+    g.dynamics.vx += ((dx / d) * p.speed - g.dynamics.vx) * 0.12;
+    g.dynamics.vy += ((dy / d) * p.speed - g.dynamics.vy) * 0.12;
   },
 };
 
@@ -1231,7 +1279,16 @@ function detachContagion(gs) {
 // Predator: chases the pointer (Attract), broadcasts its position to nearby glyphs
 //           as a 'hunt' message every tick while the pointer is on canvas.
 // Prey:     on receiving 'hunt', flees from the predator's position (Flee behaviour);
-//           calms down after 2s if no further hunt messages arrive.
+//           calms down when not hunted for PRED_PREY_PARAMS.calmTime seconds.
+
+// Tunable params — updated live by panel sliders.
+const PRED_PREY_PARAMS = {
+  huntRadius:      200,   // px — predator broadcast radius
+  attractStrength: 280,   // predator Attract force strength
+  fleeStrength:    400,   // prey Flee force strength
+  fleeRadius:      350,   // px — prey Flee influence radius
+  calmTime:        1.5,   // s — seconds without hunt before prey calms
+};
 
 const predatorStates = {
   idle: {
@@ -1243,17 +1300,17 @@ const predatorStates = {
     },
   },
   hunting: {
-    behaviours: [
-      { type: Attract, params: { strength: 280, radius: 500 } },
-    ],
+    // get behaviours() ensures each new injection reads current PRED_PREY_PARAMS
+    get behaviours() {
+      return [{ type: ChasePointer, params: { speed: PRED_PREY_PARAMS.attractStrength } }];
+    },
     onEnter(g, bCtx)  {},
     onExit(g, bCtx)   {},
     onMessage(g, msg, bCtx) {
       if (msg.type === 'tick') {
         if (!bCtx.inputState.onCanvas) return 'idle';
-        // Broadcast position so nearby prey can flee
         const px = g.x + g.w * 0.5, py = g.y - PARAMS.fontPt * 0.4;
-        bCtx.engine.broadcast(g, 200, 'hunt', { x: px, y: py });
+        bCtx.engine.broadcast(g, PRED_PREY_PARAMS.huntRadius, 'hunt', { x: px, y: py });
       }
     },
   },
@@ -1266,19 +1323,17 @@ const preyStates = {
     onExit(g, bCtx)   {},
     onMessage(g, msg, bCtx) {
       if (msg.type === 'hunt') {
-        // Store predator position + timestamp for the Flee behaviour
         g._state.set(Flee.sym, { tx: msg.data.x, ty: msg.data.y, lastHunt: bCtx.time });
         return 'fleeing';
       }
     },
   },
   fleeing: {
-    behaviours: [
-      { type: Flee, params: { strength: 400, radius: 350 } },
-    ],
+    get behaviours() {
+      return [{ type: Flee, params: { strength: PRED_PREY_PARAMS.fleeStrength, radius: PRED_PREY_PARAMS.fleeRadius } }];
+    },
     onEnter(g, bCtx) {
       if (!bCtx) return;
-      // Schedule a single calm check — do NOT reschedule on every hunt (timer spam).
       bCtx.engine.schedule(g.id, 'calm', {}, 2.0, bCtx);
     },
     onExit(g, bCtx) {
@@ -1286,14 +1341,12 @@ const preyStates = {
     },
     onMessage(g, msg, bCtx) {
       if (msg.type === 'hunt') {
-        // Refresh flee target and record time of last hunt
         const s = g._state.get(Flee.sym);
         if (s) { s.tx = msg.data.x; s.ty = msg.data.y; s.lastHunt = bCtx.time; }
       }
       if (msg.type === 'calm') {
-        // Only go idle if not hunted in the past 1.5s; otherwise re-arm the timer
         const s    = g._state.get(Flee.sym);
-        const idle = !s || (bCtx.time - s.lastHunt) > 1.5;
+        const idle = !s || (bCtx.time - s.lastHunt) > PRED_PREY_PARAMS.calmTime;
         if (idle) return 'idle';
         bCtx.engine.schedule(g.id, 'calm', {}, 1.0, bCtx);
       }
@@ -1326,6 +1379,25 @@ function detachPredatorPrey(gs) {
   for (const g of gs) {
     if (g.stateMachine?.tag === 'predator' || g.stateMachine?.tag === 'prey') {
       g.stateMachine.detach(g);
+    }
+  }
+}
+
+// Push current PRED_PREY_PARAMS values into already-running behaviour instances.
+// Call this whenever a param slider changes so live glyphs respond immediately.
+function updatePredPreyBehaviourParams() {
+  for (const g of glyphs) {
+    if (g.stateMachine?.tag === 'predator') {
+      for (const inst of g.behaviours) {
+        if (inst.type === ChasePointer) inst.params.speed = PRED_PREY_PARAMS.attractStrength;
+      }
+    } else if (g.stateMachine?.tag === 'prey') {
+      for (const inst of g.behaviours) {
+        if (inst.type === Flee) {
+          inst.params.strength = PRED_PREY_PARAMS.fleeStrength;
+          inst.params.radius   = PRED_PREY_PARAMS.fleeRadius;
+        }
+      }
     }
   }
 }
@@ -2455,12 +2527,32 @@ document.getElementById('predPreyBtn').addEventListener('click', function() {
     detachPredatorPrey(glyphs);
     this.textContent = 'Attach Pred/Prey';
     this.classList.remove('active');
+    document.getElementById('predPreyParams').style.display = 'none';
   } else {
     attachPredatorPrey(selectedGlyphs, glyphs);
     this.textContent = 'Detach Pred/Prey';
     this.classList.add('active');
+    document.getElementById('predPreyParams').style.display = '';
   }
 });
+
+// ── Predator / Prey parameter sliders ────────────────────────────────────────────
+(function() {
+  function wire(sliderId, valId, key, suffix, decimals) {
+    const sl = document.getElementById(sliderId);
+    const vl = document.getElementById(valId);
+    sl.addEventListener('input', () => {
+      const v = parseFloat(sl.value);
+      PRED_PREY_PARAMS[key] = v;
+      vl.textContent = decimals ? v.toFixed(decimals) + (suffix || '') : v + (suffix || '');
+      updatePredPreyBehaviourParams();
+    });
+  }
+  wire('sHuntRadius',      'vHuntRadius',      'huntRadius',      ' px', 0);
+  wire('sAttractStrength', 'vAttractStrength', 'attractStrength', '',    0);
+  wire('sFleeStrength',    'vFleeStrength',    'fleeStrength',    '',    0);
+  wire('sCalmTime',        'vCalmTime',        'calmTime',        ' s',  1);
+})();
 
 // ── Send agent message ───────────────────────────────────────────────────────────
 document.getElementById('smSendBtn').addEventListener('click', () => {

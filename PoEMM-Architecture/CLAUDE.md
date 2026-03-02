@@ -95,11 +95,13 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 | `makeStateMachine(statesDef, initial)` | Returns `{ init, receive, currentState, detach }` |
 | `sm.tag` | String tag set after SM creation; used to scope detach helpers |
 | `contagionStates` | SM: idle ↔ excited (Shake+Flicker, 80px broadcast, 3s timer) |
-| `predatorStates` | SM: idle ↔ hunting (Attract to pointer, broadcasts 'hunt' 200px/tick) |
+| `predatorStates` | SM: idle ↔ hunting (ChasePointer to mouse, broadcasts 'hunt' within huntRadius/tick) |
 | `preyStates` | SM: idle ↔ fleeing (Flee behaviour, calm timer once on enter) |
-| `Flee` behaviour | SM-internal; pushes away from `g._state.get(Flee.sym).{tx,ty}`; not in dropdown |
+| `Flee` behaviour | SM-internal; steers away from `g._state.get(Flee.sym).{tx,ty}` at constant speed; not in dropdown |
+| `ChasePointer` behaviour | SM-internal; steers toward mouse at constant speed (`speed` px/s); not in dropdown |
 | `attachContagion` / `detachContagion` | tag-scoped to 'contagion' |
 | `attachPredatorPrey(predGs,allGs)` / `detachPredatorPrey` | selected→predators, rest→prey; random 20% fallback |
+| `PRED_PREY_PARAMS` | `{ huntRadius, attractStrength, fleeStrength, fleeRadius, calmTime }` — live-editable via panel sliders |
 
 **AgentEngine phases:**
 1. Timer delivery (fire due timers → mailbox, immediate)
@@ -116,13 +118,17 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 
 **Prey calm-down pattern:** schedule ONE 'calm' timer in `onEnter` — never reschedule on each 'hunt' (causes timer spam at 60fps). On 'calm': check `time - lastHunt > 1.5s`; if still being hunted, re-arm a single 1s check.
 
-**Bug fix:** Select-mode delete auto-switches to Type mode when `docText` becomes empty (prevents getting stuck with no glyphs to click back).
+**Constant-speed steering pattern:** Force-based falloff (`strength/(d+1)`) is too weak at distance after 0.92 damping. Use velocity-blend instead: `g.dynamics.vx += ((dx/d)*speed - g.dynamics.vx) * 0.12`. Both `ChasePointer` and `Flee` use this pattern.
+
+**Bug fixes:**
+- Select-mode delete auto-switches to Type mode when `docText` becomes empty.
+- Prey flee radius 220→350px; removed SpringHome from fleeing behaviours (was opposing Flee force).
 
 ### Panel sections (top → bottom)
 - **Type** — font family, size, justify
 - **Colour** — text, background
 - **Mode** — Type / Select toggle
-- **Agent** (permanent) — `#contagionBtn` Attach/Detach Contagion; `#predPreyBtn` Attach/Detach Pred/Prey
+- **Agent** (permanent) — `#contagionBtn` Attach/Detach Contagion; `#predPreyBtn` Attach/Detach Pred/Prey; `#predPreyParams` sliders (hunt radius, attract speed, flee speed, calm time — shown only when pred/prey active)
 - **Behaviours** — per-selection instances + sliders; SM state display when SM present (Select mode)
 - **Geometry** — outline2d / particles toggle + params (Select mode)
 - **Agent** (in selectionPanel) — `#smTriggerInput` + `#smSendBtn`; sends to selected glyphs

@@ -1975,6 +1975,7 @@ document.addEventListener('keydown', e => {
       cursorPos = anchorPos = lo;
       selectGlyphs([]);
       layout(); resetBlink(); e.preventDefault();
+      if (docText.length === 0) setEditorMode('type');
     }
     return;
   }

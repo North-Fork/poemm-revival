@@ -152,6 +152,8 @@ select:focus { outline: none; border-color: #336; }
 
   <div class="section-label">Agent</div>
   <button id="contagionBtn" class="jbtn" style="width:100%;margin-top:2px">Attach Contagion</button>
+  <button id="predPreyBtn"  class="jbtn" style="width:100%;margin-top:4px">Attach Pred/Prey</button>
+  <div style="font-size:9px;color:#444;margin-top:3px">selected = predators, rest = prey</div>
 
   <div id="selectionPanel" style="display:none">
     <div class="section-label">Behaviours</div>
@@ -828,6 +830,25 @@ const Repel = {
   },
 };
 
+// Pushes the glyph away from a stored world point (set by a state machine).
+// The flee target is read from g._state.get(Flee.sym) = { tx, ty }.
+// No-op if no target has been stored yet.
+const Flee = {
+  sym:      Symbol('Flee'),
+  defaults: { strength: 350, radius: 220 },
+  apply(g, dt, bCtx, p) {
+    const s = g._state.get(Flee.sym);
+    if (!s) return;
+    const cx = g.x + g.w * 0.5, cy = g.y - PARAMS.fontPt * 0.4;
+    const dx = cx - s.tx, dy = cy - s.ty;
+    const d  = Math.hypot(dx, dy);
+    if (d < 1 || d > p.radius) return;
+    const f = p.strength * (1 - d / p.radius) / (d + 1);
+    g.dynamics.vx += (dx / d) * f * dt;
+    g.dynamics.vy += (dy / d) * f * dt;
+  },
+};
+
 // Circular orbit around the glyph's home position.
 const Orbit = {
   sym:      Symbol('Orbit'),
@@ -1193,15 +1214,115 @@ function attachContagion(gs) {
   for (const g of gs) {
     if (g.char === ' ' || g.char === '\n') continue;
     const sm = makeStateMachine(contagionStates, 'idle');
+    sm.tag = 'contagion';
     g.stateMachine = sm;
-    sm.init(g, null);   // null bCtx: guard in onEnter prevents broadcasts during init
+    sm.init(g, null);
   }
 }
 
 // Detach contagion SM from every glyph (removes injected behaviours).
 function detachContagion(gs) {
   for (const g of gs) {
-    if (g.stateMachine) g.stateMachine.detach(g);
+    if (g.stateMachine?.tag === 'contagion') g.stateMachine.detach(g);
+  }
+}
+
+// ── Predator / Prey State Machines ──────────────────────────────────────────────
+// Predator: chases the pointer (Attract), broadcasts its position to nearby glyphs
+//           as a 'hunt' message every tick while the pointer is on canvas.
+// Prey:     on receiving 'hunt', flees from the predator's position (Flee behaviour);
+//           calms down after 2s if no further hunt messages arrive.
+
+const predatorStates = {
+  idle: {
+    behaviours: [],
+    onEnter(g, bCtx)  {},
+    onExit(g, bCtx)   {},
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'tick' && bCtx.inputState.onCanvas) return 'hunting';
+    },
+  },
+  hunting: {
+    behaviours: [
+      { type: Attract, params: { strength: 280, radius: 500 } },
+    ],
+    onEnter(g, bCtx)  {},
+    onExit(g, bCtx)   {},
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'tick') {
+        if (!bCtx.inputState.onCanvas) return 'idle';
+        // Broadcast position so nearby prey can flee
+        const px = g.x + g.w * 0.5, py = g.y - PARAMS.fontPt * 0.4;
+        bCtx.engine.broadcast(g, 200, 'hunt', { x: px, y: py });
+      }
+    },
+  },
+};
+
+const preyStates = {
+  idle: {
+    behaviours: [],
+    onEnter(g, bCtx)  {},
+    onExit(g, bCtx)   {},
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'hunt') {
+        // Store predator world position for the Flee behaviour
+        g._state.set(Flee.sym, { tx: msg.data.x, ty: msg.data.y });
+        return 'fleeing';
+      }
+    },
+  },
+  fleeing: {
+    behaviours: [
+      { type: Flee,      params: { strength: 350, radius: 220 } },
+      { type: SpringHome, params: { stiffness: 3 } },
+    ],
+    onEnter(g, bCtx) {
+      if (!bCtx) return;
+      bCtx.engine.schedule(g.id, 'calm', {}, 2.0, bCtx);
+    },
+    onExit(g, bCtx) {
+      g._state.delete(Flee.sym);  // clean up flee target
+    },
+    onMessage(g, msg, bCtx) {
+      if (msg.type === 'hunt') {
+        // Keep flee target fresh while the predator is still near
+        const s = g._state.get(Flee.sym);
+        if (s) { s.tx = msg.data.x; s.ty = msg.data.y; }
+        // Reschedule calm so it resets while being hunted
+        if (bCtx) bCtx.engine.schedule(g.id, 'calm', {}, 2.0, bCtx);
+      }
+      if (msg.type === 'calm') return 'idle';
+    },
+  },
+};
+
+// Attach predator/prey SMs. predGs become predators; the rest of printable allGs become prey.
+// If predGs is empty, randomly assigns ~20% as predators.
+function attachPredatorPrey(predGs, allGs) {
+  const printable = allGs.filter(g => g.char !== ' ' && g.char !== '\n');
+  let predSet = new Set(predGs.filter(g => g.char !== ' ' && g.char !== '\n'));
+  if (predSet.size === 0) {
+    // Random fallback: pick ~20%, at least 1
+    const shuffled = [...printable].sort(() => Math.random() - 0.5);
+    const n = Math.max(1, Math.floor(printable.length * 0.2));
+    shuffled.slice(0, n).forEach(g => predSet.add(g));
+  }
+  for (const g of printable) {
+    const isPred = predSet.has(g);
+    const sm = makeStateMachine(isPred ? predatorStates : preyStates, 'idle');
+    sm.tag = isPred ? 'predator' : 'prey';
+    g.stateMachine = sm;
+    sm.init(g, null);
+  }
+}
+
+// Detach all predator/prey SMs and clean up.
+function detachPredatorPrey(gs) {
+  for (const g of gs) {
+    if (g.stateMachine?.tag === 'predator' || g.stateMachine?.tag === 'prey') {
+      g.stateMachine.detach(g);
+    }
   }
 }
 
@@ -2311,14 +2432,28 @@ document.getElementById('bAdd').addEventListener('change', function() {
 
 // ── Contagion toggle ─────────────────────────────────────────────────────────────
 document.getElementById('contagionBtn').addEventListener('click', function() {
-  const anyHasSM = glyphs.some(g => g.stateMachine);
-  if (anyHasSM) {
+  const active = glyphs.some(g => g.stateMachine?.tag === 'contagion');
+  if (active) {
     detachContagion(glyphs);
     this.textContent = 'Attach Contagion';
     this.classList.remove('active');
   } else {
     attachContagion(glyphs);
     this.textContent = 'Detach Contagion';
+    this.classList.add('active');
+  }
+});
+
+// ── Predator / Prey toggle ────────────────────────────────────────────────────────
+document.getElementById('predPreyBtn').addEventListener('click', function() {
+  const active = glyphs.some(g => g.stateMachine?.tag === 'predator' || g.stateMachine?.tag === 'prey');
+  if (active) {
+    detachPredatorPrey(glyphs);
+    this.textContent = 'Attach Pred/Prey';
+    this.classList.remove('active');
+  } else {
+    attachPredatorPrey(selectedGlyphs, glyphs);
+    this.textContent = 'Detach Pred/Prey';
     this.classList.add('active');
   }
 });

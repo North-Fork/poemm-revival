@@ -1266,33 +1266,37 @@ const preyStates = {
     onExit(g, bCtx)   {},
     onMessage(g, msg, bCtx) {
       if (msg.type === 'hunt') {
-        // Store predator world position for the Flee behaviour
-        g._state.set(Flee.sym, { tx: msg.data.x, ty: msg.data.y });
+        // Store predator position + timestamp for the Flee behaviour
+        g._state.set(Flee.sym, { tx: msg.data.x, ty: msg.data.y, lastHunt: bCtx.time });
         return 'fleeing';
       }
     },
   },
   fleeing: {
     behaviours: [
-      { type: Flee,      params: { strength: 350, radius: 220 } },
-      { type: SpringHome, params: { stiffness: 3 } },
+      { type: Flee, params: { strength: 400, radius: 350 } },
     ],
     onEnter(g, bCtx) {
       if (!bCtx) return;
+      // Schedule a single calm check — do NOT reschedule on every hunt (timer spam).
       bCtx.engine.schedule(g.id, 'calm', {}, 2.0, bCtx);
     },
     onExit(g, bCtx) {
-      g._state.delete(Flee.sym);  // clean up flee target
+      g._state.delete(Flee.sym);
     },
     onMessage(g, msg, bCtx) {
       if (msg.type === 'hunt') {
-        // Keep flee target fresh while the predator is still near
+        // Refresh flee target and record time of last hunt
         const s = g._state.get(Flee.sym);
-        if (s) { s.tx = msg.data.x; s.ty = msg.data.y; }
-        // Reschedule calm so it resets while being hunted
-        if (bCtx) bCtx.engine.schedule(g.id, 'calm', {}, 2.0, bCtx);
+        if (s) { s.tx = msg.data.x; s.ty = msg.data.y; s.lastHunt = bCtx.time; }
       }
-      if (msg.type === 'calm') return 'idle';
+      if (msg.type === 'calm') {
+        // Only go idle if not hunted in the past 1.5s; otherwise re-arm the timer
+        const s    = g._state.get(Flee.sym);
+        const idle = !s || (bCtx.time - s.lastHunt) > 1.5;
+        if (idle) return 'idle';
+        bCtx.engine.schedule(g.id, 'calm', {}, 1.0, bCtx);
+      }
     },
   },
 };

@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Abecedarium</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+             font-family: system-ui, -apple-system, sans-serif; }
+
+/* ── Sidebar ── */
+#panel {
+  position: fixed; left: 0; top: 0; width: 240px; height: 100%;
+  overflow-y: auto; background: #111; color: #ccc;
+  font-size: 12px; padding: 10px; z-index: 10;
+  border-right: 1px solid #222;
+}
+
+#panel-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em;
+  color: #7af; margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.sec-hd {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #555; margin: 12px 0 5px;
+  border-top: 1px solid #1e1e1e; padding-top: 8px;
+  cursor: pointer; user-select: none;
+}
+.sec-hd:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.sec-hd::after        { content: ' ▾'; float: right; }
+.sec-hd.closed::after { content: ' ▸'; }
+.sec-bd.hidden        { display: none; }
+
+/* Param rows */
+.param-row    { margin: 6px 0; }
+.param-header { display: flex; justify-content: space-between; align-items: baseline;
+                margin-bottom: 2px; }
+.param-name   { font-size: 10px; color: #888; }
+/* number input replaces the old static .param-val span */
+.param-val-input {
+  width: 46px; background: transparent; color: #7af;
+  border: none; border-bottom: 1px solid #2a2a2a;
+  font-size: 10px; font-family: monospace; text-align: right;
+  padding: 0 1px; -moz-appearance: textfield;
+}
+.param-val-input::-webkit-outer-spin-button,
+.param-val-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.param-val-input:focus { outline: none; border-bottom-color: #7af; }
+
+/* Select (dropdown) */
+.sel-row { margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+.sel-row label { font-size: 10px; color: #888; flex: 1; }
+.sel-row select {
+  flex: 1.4; background: #181818; color: #ccc; border: 1px solid #2a2a2a;
+  font-size: 11px; padding: 2px 4px; cursor: pointer;
+}
+.sel-row select:focus { outline: none; border-color: #336; }
+
+/* Range */
+input[type=range] {
+  width: 100%; height: 12px; cursor: pointer; accent-color: #7af;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; background: #2a2a2a; border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: #7af; margin-top: -4px;
+}
+
+/* Color rows */
+.color-row  { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.color-row label { font-size: 10px; color: #888; flex: 1; }
+.color-row input[type=color] {
+  width: 34px; height: 20px; padding: 1px 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
+}
+
+/* Toggle buttons (Render mode) */
+.toggle-row { display: flex; gap: 6px; margin: 6px 0; }
+.tog-btn {
+  flex: 1; padding: 5px 0; background: #1a1a1a; color: #888;
+  border: 1px solid #2a2a2a; cursor: pointer; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  transition: background 0.1s, color 0.1s;
+}
+.tog-btn:hover  { background: #222; color: #aaa; }
+.tog-btn.active { background: #1a2a3a; color: #7af; border-color: #2a4060; }
+
+/* Action button */
+.action-btn {
+  width: 100%; padding: 7px; margin-top: 6px;
+  background: #1a1a1a; color: #888; border: 1px solid #2a2a2a;
+  cursor: pointer; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.action-btn:hover  { background: #222; color: #aaa; }
+.action-btn:active { background: #111; }
+
+/* Current char readout */
+#char-display {
+  font-size: 10px; color: #555; margin-top: 14px; padding-top: 10px;
+  border-top: 1px solid #1e1e1e; text-align: center; letter-spacing: 0.05em;
+  line-height: 1.6;
+}
+#char-display .char-big {
+  display: block; font-size: 32px; color: #444; margin: 4px 0;
+  font-family: Georgia, serif;
+}
+#font-status {
+  font-size: 9px; color: #444; text-align: center;
+  margin-top: 4px; min-height: 14px;
+  font-family: monospace;
+}
+#font-status.loading { color: #874; }
+#font-status.ready   { color: #474; }
+#font-status.failed  { color: #744; }
+
+/* Save modal */
+#save-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#save-modal {
+  background: #1a1a1a; border: 1px solid #333; padding: 20px;
+  width: 260px; display: flex; flex-direction: column; gap: 10px;
+}
+#save-modal label { color: #aaa; font-size: 11px; }
+#save-modal input[type=text] {
+  width: 100%; box-sizing: border-box;
+  background: #0d0d0d; border: 1px solid #333; color: #ddd;
+  font-size: 13px; padding: 5px 8px;
+}
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-btns button {
+  padding: 4px 12px; font-size: 11px; cursor: pointer;
+  border: 1px solid #333; background: #1a2a3a; color: #7af;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.modal-btns button.cancel { background: none; color: #666; border-color: #222; }
+.modal-btns button:hover { background: #253545; color: #9cf; }
+
+/* Canvas */
+canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <div id="panel-title">Abecedarium</div>
+  <!-- Sections built by buildUI() -->
+</div>
+
+<canvas id="c"></canvas>
+
+<!-- opentype.js for true bezier glyph paths + control points -->
+<script src="https://unpkg.com/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<script>
+'use strict';
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const FIXED_DT  = 1 / 60;
+const EMPTY_DASH = [];   // shared ref — avoids [] allocation in setLineDash calls
+const TAU        = Math.PI * 2;
+let _uid = 0;
+// Cached canvas CSS dimensions — updated in resizeCanvas(), read in loop()
+let _canvasW = 0, _canvasH = 0;
+
+// ── Parameters ───────────────────────────────────────────────────────────────
+const P = {
+  font:        'EB Garamond',
+  size:        120,           // pt
+  fillOn:      true,
+  fillColor:   '#ffffff',
+  strokeOn:    false,
+  strokeColor: '#ffffff',
+  strokeWidth: 1.5,
+  bg:          '#000000',
+  renderMode:  'text',        // 'text' | 'vector'
+  gaussAmt:    0,             // Gaussian noise amplitude (canvas px)
+  poissonAmt:  0,             // Poisson noise λ (canvas px, layered on Gaussian)
+  noiseSmooth: 0,             // 0 = instant/choppy → 0.99 = very smooth/billowing
+  noisePeriod: 0,             // seconds between target resamples (0 = every physics tick)
+  frozen:      false,         // pause noise evolution
+  showAnchors: true,          // draw on-curve anchor points
+  showHandles: true,          // draw off-curve control handles + lines
+};
+
+// ── Dance configs (per-letter noise + body movement params) ──────────────────
+const DANCE_DEFAULT = {
+  gaussAmt: 5,  poissonAmt: 5,  noiseSmooth: 0.5,  noisePeriod: 1.0,
+  driftAmt: 10, driftSpeed: 0.3,
+  spinAmt:  0.05, spinSpeed: 0.2,
+  pulseAmt: 0.05, pulseSpeed: 0.3,
+};
+
+const DANCE = {
+  'A': {
+    gaussAmt: 2.4, poissonAmt: 6.6, noiseSmooth: 0.92, noisePeriod: 2.5,
+    driftAmt: 2,  driftSpeed: 0.08,
+    spinAmt:  0.025, spinSpeed: 0.07,
+    pulseAmt: 0.025, pulseSpeed: 0.14,
+  },
+};
+
+// ── Web fonts (loaded via opentype.js + CSS FontFace) ────────────────────────
+const FONTS = [
+  'EB Garamond', 'Playfair Display', 'Lora', 'Merriweather',
+  'Libre Baskerville', 'Crimson Pro', 'Roboto', 'Open Sans',
+  'Raleway', 'Josefin Sans', 'Source Code Pro', 'Courier Prime',
+];
+
+// woff files from jsDelivr/@fontsource v4 — opentype.js parses woff (zlib) reliably;
+// woff2 uses Brotli and opentype.js's bundled decoder fails on it in practice.
+const FONT_SOURCES = {
+  'EB Garamond':       'https://cdn.jsdelivr.net/npm/@fontsource/eb-garamond@4/files/eb-garamond-latin-400-normal.woff',
+  'Playfair Display':  'https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@4/files/playfair-display-latin-400-normal.woff',
+  'Lora':              'https://cdn.jsdelivr.net/npm/@fontsource/lora@4/files/lora-latin-400-normal.woff',
+  'Merriweather':      'https://cdn.jsdelivr.net/npm/@fontsource/merriweather@4/files/merriweather-latin-400-normal.woff',
+  'Libre Baskerville': 'https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@4/files/libre-baskerville-latin-400-normal.woff',
+  'Crimson Pro':       'https://cdn.jsdelivr.net/npm/@fontsource/crimson-pro@4/files/crimson-pro-latin-400-normal.woff',
+  'Roboto':            'https://cdn.jsdelivr.net/npm/@fontsource/roboto@4/files/roboto-latin-400-normal.woff',
+  'Open Sans':         'https://cdn.jsdelivr.net/npm/@fontsource/open-sans@4/files/open-sans-latin-400-normal.woff',
+  'Raleway':           'https://cdn.jsdelivr.net/npm/@fontsource/raleway@4/files/raleway-latin-400-normal.woff',
+  'Josefin Sans':      'https://cdn.jsdelivr.net/npm/@fontsource/josefin-sans@4/files/josefin-sans-latin-400-normal.woff',
+  'Source Code Pro':   'https://cdn.jsdelivr.net/npm/@fontsource/source-code-pro@4/files/source-code-pro-latin-400-normal.woff',
+  'Courier Prime':     'https://cdn.jsdelivr.net/npm/@fontsource/courier-prime@4/files/courier-prime-latin-400-normal.woff',
+};
+
+// fontCache: name → opentype.Font | 'loading' | null (failed)
+const fontCache = new Map();
+
+async function ensureFont(name) {
+  if (fontCache.has(name)) return;
+  const url = FONT_SOURCES[name];
+  if (!url) { fontCache.set(name, null); return; }
+
+  fontCache.set(name, 'loading');
+  setFontStatus('loading', name + '…');
+  try {
+    const buf    = await fetch(url).then(r => r.arrayBuffer());
+    const otFont = opentype.parse(buf.slice(0));   // slice keeps buf intact for FontFace
+
+    // Also register as CSS font so fillText renders it
+    try {
+      const face = new FontFace(name, buf);
+      await face.load();
+      document.fonts.add(face);
+    } catch (_) { /* fillText will fall back to system font, vector still works */ }
+
+    fontCache.set(name, otFont);
+    if (name === P.font) setFontStatus('ready', name + ' ready');
+    if (currentCG && currentCG.font === name && !currentCG._baseCmds) initCGPath(currentCG, otFont);
+  } catch (e) {
+    console.warn('Font load failed:', name, e);
+    fontCache.set(name, null);
+    if (name === P.font) setFontStatus('failed', 'failed: ' + e.message);
+  }
+}
+
+function setFontStatus(cls, msg) {
+  const el = document.getElementById('font-status');
+  if (!el) return;
+  el.className = cls;
+  el.textContent = msg;
+}
+
+// ── RNG (FNV-1a seeded) ──────────────────────────────────────────────────────
+function makeRNG(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return function() {
+    h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
+    h >>>= 0;
+    return h / 4294967296;
+  };
+}
+
+// ── ComplexGlyph factory ─────────────────────────────────────────────────────
+function makeCG(char, x, y) {
+  return {
+    id:       'cg' + (_uid++),
+    char,
+    font:     P.font,
+    size:     P.size,
+    x, y,
+    z:        0,
+    homeX: x, homeY: y,
+    rotation: 0,
+    scale:    1,
+    dynamics: {
+      vx: 0, vy: 0,
+      angularVel: 0,
+      damping: 0.92,
+    },
+    material: {
+      fill:      P.color,
+      opacity:   1,
+      blendMode: 'source-over',
+    },
+    geometry: {
+      type: P.renderMode,
+    },
+    behaviours:   [],
+    _state:       new Map(),
+    mailbox:      [],
+    stateMachine: null,
+    rng:          makeRNG(char),
+    _baseCmds:    null,   // editable path commands (null until font loads)
+    _displayCmds: null,   // pre-allocated output buffer for noise-displaced rendering
+    _noiseState:  null,   // per-point smoothed noise displacements
+  };
+}
+
+// ── AgentEngine (scaffold — v1: phases 5 & 6 only) ──────────────────────────
+const AgentEngine = (() => ({
+  processFrame(dt, bCtx) {
+    const cgs = bCtx.cgs;
+    const nc  = cgs.length;
+    for (let i = 0; i < nc; i++) {
+      const cg = cgs[i];
+      const beh = cg.behaviours;
+      for (let j = 0; j < beh.length; j++) beh[j].type.apply(cg, dt, bCtx, beh[j].params);
+    }
+    for (let i = 0; i < nc; i++) {
+      const cg  = cgs[i];
+      const dyn = cg.dynamics;
+      cg.x        += dyn.vx        * dt;
+      cg.y        += dyn.vy        * dt;
+      cg.rotation += dyn.angularVel * dt;
+      dyn.vx        *= dyn.damping;
+      dyn.vy        *= dyn.damping;
+      dyn.angularVel *= dyn.damping;
+    }
+  },
+  send()      {},
+  broadcast() {},
+  schedule()  {},
+}))();
+
+// ── Dance behaviour ───────────────────────────────────────────────────────────
+const DanceBehavior = (() => {
+  const sym = Symbol('dance');
+  return {
+    sym,
+    apply(cg, dt, bCtx) {
+      const dp = cg._danceParams;
+      if (!dp) return;
+      const t = bCtx.time;
+      if (!cg._state.has(sym)) cg._state.set(sym, { baseScale: cg.scale });
+      const st = cg._state.get(sym);
+      // Drift — two incommensurate oscillators for organic 2-D wander
+      if (dp.driftAmt > 0) {
+        cg.x = cg.homeX + Math.sin(t * dp.driftSpeed * TAU) * dp.driftAmt;
+        cg.y = cg.homeY + Math.sin(t * dp.driftSpeed * TAU * 1.618 + 1.0) * dp.driftAmt * 0.7;
+      }
+      // Spin
+      cg.rotation = Math.sin(t * dp.spinSpeed * TAU) * dp.spinAmt;
+      // Scale pulse
+      cg.scale = st.baseScale * (1 + Math.sin(t * dp.pulseSpeed * TAU) * dp.pulseAmt);
+      // Zero dynamics so they don't fight body movement
+      cg.dynamics.vx = 0;
+      cg.dynamics.vy = 0;
+      cg.dynamics.angularVel = 0;
+    },
+  };
+})();
+
+let danceActive = false;
+let _danceBtn   = null;   // panel button ref — set in buildUI
+
+function attachDance(cg) {
+  if (!cg) return;
+  cg._danceParams = DANCE[cg.char.toUpperCase()] || DANCE_DEFAULT;
+  if (!cg.behaviours.some(b => b.type === DanceBehavior))
+    cg.behaviours.push({ type: DanceBehavior, params: {} });
+}
+
+function detachDance(cg) {
+  if (!cg) return;
+  const st = cg._state.get(DanceBehavior.sym);
+  cg._danceParams = null;
+  cg._state.delete(DanceBehavior.sym);
+  cg.behaviours = cg.behaviours.filter(b => b.type !== DanceBehavior);
+  cg.rotation = 0;
+  cg.scale    = st ? st.baseScale : 1;
+}
+
+// ── Canvas setup ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  _canvasW = window.innerWidth  - 240;
+  _canvasH = window.innerHeight;
+  canvas.width  = _canvasW * dpr;
+  canvas.height = _canvasH * dpr;
+  canvas.style.width  = _canvasW + 'px';
+  canvas.style.height = _canvasH + 'px';
+  ctx.scale(dpr, dpr);
+}
+
+// ── Gaussian noise ────────────────────────────────────────────────────────────
+// Box-Muller transform: uniform → standard normal
+function gaussRand() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+}
+
+// Knuth algorithm; normal approximation for λ > 30 to avoid slow loops.
+// Returns a centered Poisson sample (mean 0, variance λ) for use as displacement.
+// Math.exp(-lambda) is cached since P.poissonAmt rarely changes.
+let _poissonLambda = -1, _poissonL = 1;
+function poissonRand(lambda) {
+  if (lambda <= 0) return 0;
+  if (lambda > 30) {
+    return Math.round(lambda + gaussRand() * Math.sqrt(lambda)) - lambda;
+  }
+  if (lambda !== _poissonLambda) { _poissonLambda = lambda; _poissonL = Math.exp(-lambda); }
+  const L = _poissonL;
+  let p = 1, k = 0;
+  do { k++; p *= Math.random(); } while (p > L);
+  return k - 1 - lambda;   // center so mean displacement = 0
+}
+
+// ── Stateful noise system ─────────────────────────────────────────────────────
+// Each (x,y) pair in the path gets a slot: { cx, cy, tx, ty, timer }
+//   cx/cy  = current smoothed displacement (what gets applied to rendering)
+//   tx/ty  = target displacement (randomly generated)
+//   timer  = countdown (seconds) until next target pick
+
+function _noiseSlotCount(cmds) {
+  let n = 0;
+  for (const cmd of cmds) {
+    if      (cmd.type === 'C') n += 3;
+    else if (cmd.type === 'Q') n += 2;
+    else if (cmd.type === 'M' || cmd.type === 'L') n += 1;
+  }
+  return n;
+}
+
+function initNoiseState(cg) {
+  const n      = _noiseSlotCount(cg._baseCmds);
+  const period = P.noisePeriod > 0 ? P.noisePeriod : 0;
+  cg._noiseSlots    = n;
+  cg._cachedPeriod  = period;   // track so we can re-stagger on period change
+  cg._noiseState    = Array.from({ length: n }, () =>
+    ({ cx: 0, cy: 0, tx: 0, ty: 0, timer: Math.random() * period }));
+}
+
+function _sampleDisp(pp) {
+  return (pp.gaussAmt   > 0 ? gaussRand() * pp.gaussAmt  : 0) +
+         (pp.poissonAmt > 0 ? poissonRand(pp.poissonAmt) : 0);
+}
+
+// Called each fixed physics tick. Advances timers, resamples targets, lerps.
+// pp = noise params object (cg._danceParams when Dance is active, else global P)
+function updateNoiseState(cg, dt, pp) {
+  if (!pp) pp = P;
+  if (!cg._noiseState) initNoiseState(cg);
+
+  const period = pp.noisePeriod > 0 ? pp.noisePeriod : 0;
+  const ns     = cg._noiseState;
+  const len    = ns.length;
+
+  // Period changed → re-stagger all slot timers immediately.
+  if (period !== cg._cachedPeriod) {
+    cg._cachedPeriod = period;
+    if (period > 0) {
+      for (let i = 0; i < len; i++) ns[i].timer = Math.random() * period;
+    }
+  }
+
+  const alpha = 1 - Math.min(pp.noiseSmooth, 0.9999);
+  for (let i = 0; i < len; i++) {
+    const s = ns[i];
+    s.timer -= dt;
+    if (s.timer <= 0) {
+      s.tx    = _sampleDisp(pp);
+      s.ty    = _sampleDisp(pp);
+      s.timer = period;
+    }
+    s.cx += (s.tx - s.cx) * alpha;
+    s.cy += (s.ty - s.cy) * alpha;
+  }
+}
+
+// Writes displaced coordinates into displayCmds in-place — no allocation.
+function applyNoiseState(baseCmds, noiseState, displayCmds) {
+  let i = 0;
+  for (let j = 0; j < baseCmds.length; j++) {
+    const src = baseCmds[j], dst = displayCmds[j];
+    switch (src.type) {
+      case 'M': case 'L': {
+        const s = noiseState[i++];
+        dst.x = src.x + s.cx;  dst.y = src.y + s.cy;
+        break;
+      }
+      case 'C': {
+        const s1 = noiseState[i++], s2 = noiseState[i++], s3 = noiseState[i++];
+        dst.x1 = src.x1 + s1.cx;  dst.y1 = src.y1 + s1.cy;
+        dst.x2 = src.x2 + s2.cx;  dst.y2 = src.y2 + s2.cy;
+        dst.x  = src.x  + s3.cx;  dst.y  = src.y  + s3.cy;
+        break;
+      }
+      case 'Q': {
+        const s1 = noiseState[i++], s2 = noiseState[i++];
+        dst.x1 = src.x1 + s1.cx;  dst.y1 = src.y1 + s1.cy;
+        dst.x  = src.x  + s2.cx;  dst.y  = src.y  + s2.cy;
+        break;
+      }
+      // Z: no coordinates
+    }
+  }
+}
+
+// ── Base path init (stores editable commands on CG) ─────────────────────────
+function initCGPath(cg, otFont) {
+  const scale     = cg.size / otFont.unitsPerEm;
+  const glyph     = otFont.charToGlyph(cg.char);
+  const adv       = glyph.advanceWidth * scale;
+  const startX    = -adv / 2;
+  const baselineY = (otFont.ascender + otFont.descender) / 2 * scale;
+  const path      = otFont.getPath(cg.char, startX, baselineY, cg.size);
+  // Deep-copy so user edits don't affect the font object
+  cg._baseCmds    = path.commands.map(cmd => ({ ...cmd }));
+  // Pre-allocate output buffer (same structure) — updated in-place each frame
+  cg._displayCmds = path.commands.map(cmd => ({ ...cmd }));
+  cg._noiseState   = null;
+  cg._noiseSlots   = null;   // cached slot count — set when noise state is inited
+  cg._cachedPeriod = -1;     // force re-stagger on next init
+  cg._fontStr      = `${cg.size}px "${cg.font}"`;  // cached ctx.font string
+}
+
+// ── Pointer → CG local coordinate transform ──────────────────────────────────
+function canvasToCGLocal(mx, my, cg) {
+  const dx  = mx - cg.x;
+  const dy  = my - cg.y;
+  const cos = Math.cos(-cg.rotation);
+  const sin = Math.sin(-cg.rotation);
+  return {
+    x: (dx * cos - dy * sin) / cg.scale,
+    y: (dx * sin + dy * cos) / cg.scale,
+  };
+}
+
+// Returns { cmdIdx, role } of the nearest selectable point within radius, or null.
+function hitTestPoints(lx, ly, cmds, radius) {
+  let best = null, bestDist = radius;
+  function check(cmdIdx, role, x, y) {
+    const d = Math.hypot(x - lx, y - ly);
+    if (d < bestDist) { bestDist = d; best = { cmdIdx, role }; }
+  }
+  for (let i = 0; i < cmds.length; i++) {
+    const cmd = cmds[i];
+    if (cmd.type === 'M' || cmd.type === 'L') {
+      check(i, 'anchor', cmd.x, cmd.y);
+    } else if (cmd.type === 'C') {
+      check(i, 'cp1', cmd.x1, cmd.y1);
+      check(i, 'cp2', cmd.x2, cmd.y2);
+      check(i, 'anchor', cmd.x, cmd.y);
+    } else if (cmd.type === 'Q') {
+      check(i, 'cp1', cmd.x1, cmd.y1);
+      check(i, 'anchor', cmd.x, cmd.y);
+    }
+  }
+  return best;
+}
+
+// ── Control-point visualization (batched — O(1) draw calls) ─────────────────
+// All handle lines → 1 stroke
+// All non-selected anchors → 1 fill
+// Selected anchor (0 or 1) → 1 fill + 1 stroke
+// All non-selected handles → 1 stroke
+// Selected handle (0 or 1) → 1 stroke
+
+function drawControlPoints(commands, sel) {
+  const selIdx  = sel ? sel.cmdIdx : -1;
+  const selRole = sel ? sel.role   : '';
+  const n = commands.length;
+
+  // Batch 1: handle lines
+  if (P.showHandles) {
+    let px = 0, py = 0, fx = 0, fy = 0;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const cmd = commands[i];
+      if (cmd.type === 'M') {
+        px = fx = cmd.x; py = fy = cmd.y;
+      } else if (cmd.type === 'L') {
+        px = cmd.x; py = cmd.y;
+      } else if (cmd.type === 'C') {
+        ctx.moveTo(px, py);   ctx.lineTo(cmd.x1, cmd.y1);
+        ctx.moveTo(cmd.x, cmd.y); ctx.lineTo(cmd.x2, cmd.y2);
+        px = cmd.x; py = cmd.y;
+      } else if (cmd.type === 'Q') {
+        ctx.moveTo(px, py);   ctx.lineTo(cmd.x1, cmd.y1);
+        ctx.moveTo(cmd.x, cmd.y); ctx.lineTo(cmd.x1, cmd.y1);
+        px = cmd.x; py = cmd.y;
+      } else if (cmd.type === 'Z') {
+        px = fx; py = fy;
+      }
+    }
+    ctx.strokeStyle = 'rgba(250,170,70,0.4)';
+    ctx.lineWidth = 0.75;
+    ctx.setLineDash(EMPTY_DASH);
+    ctx.stroke();
+  }
+
+  // Batch 2: non-selected anchors (one fill pass)
+  if (P.showAnchors) {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const cmd = commands[i];
+      if ((cmd.type === 'M' || cmd.type === 'L' || cmd.type === 'C' || cmd.type === 'Q') &&
+          !(i === selIdx && selRole === 'anchor')) {
+        ctx.moveTo(cmd.x + 4, cmd.y);
+        ctx.arc(cmd.x, cmd.y, 4, 0, TAU);
+      }
+    }
+    ctx.fillStyle = '#7af';
+    ctx.fill();
+
+    // Selected anchor (at most 1)
+    if (selIdx >= 0 && selRole === 'anchor' && selIdx < n) {
+      const cmd = commands[selIdx];
+      ctx.beginPath();
+      ctx.arc(cmd.x, cmd.y, 6, 0, TAU);
+      ctx.fillStyle = '#bdf';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // Batch 3: non-selected handle circles (one stroke pass)
+  if (P.showHandles) {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const cmd = commands[i];
+      if (cmd.type === 'C') {
+        if (!(i === selIdx && selRole === 'cp1')) {
+          ctx.moveTo(cmd.x1 + 3, cmd.y1);
+          ctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
+        }
+        if (!(i === selIdx && selRole === 'cp2')) {
+          ctx.moveTo(cmd.x2 + 3, cmd.y2);
+          ctx.arc(cmd.x2, cmd.y2, 3, 0, TAU);
+        }
+      } else if (cmd.type === 'Q') {
+        if (!(i === selIdx && selRole === 'cp1')) {
+          ctx.moveTo(cmd.x1 + 3, cmd.y1);
+          ctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
+        }
+      }
+    }
+    ctx.strokeStyle = '#fa7';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(EMPTY_DASH);
+    ctx.stroke();
+
+    // Selected handle (at most 1)
+    if (selIdx >= 0 && (selRole === 'cp1' || selRole === 'cp2') && selIdx < n) {
+      const cmd = commands[selIdx];
+      const hx = selRole === 'cp1' ? cmd.x1 : cmd.x2;
+      const hy = selRole === 'cp1' ? cmd.y1 : cmd.y2;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 5, 0, TAU);
+      ctx.strokeStyle = '#fdb';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
+// ── drawCG ───────────────────────────────────────────────────────────────────
+function drawCG(ctx, cg) {
+  ctx.save();
+  ctx.translate(cg.x, cg.y);
+  ctx.rotate(cg.rotation);
+  ctx.scale(cg.scale, cg.scale);
+  ctx.globalAlpha = cg.material.opacity;
+  ctx.globalCompositeOperation = cg.material.blendMode;
+
+  const otFont = fontCache.get(cg.font);
+  const fontReady = otFont && otFont !== 'loading';
+
+  if (cg.geometry.type === 'vector' && fontReady) {
+    // ── opentype vector outline + bezier control points ──
+    if (!cg._baseCmds) initCGPath(cg, otFont);
+    const baseCmds = cg._baseCmds;
+
+    const _np = cg._danceParams || P;
+    const noiseActive = _np.gaussAmt > 0 || _np.poissonAmt > 0;
+    if (noiseActive && cg._noiseState && cg._displayCmds) {
+      applyNoiseState(baseCmds, cg._noiseState, cg._displayCmds);
+    }
+    const cmds = (noiseActive && cg._displayCmds) ? cg._displayCmds : baseCmds;
+
+    // Build path — indexed loop avoids iterator allocation
+    ctx.beginPath();
+    for (let ci = 0; ci < cmds.length; ci++) {
+      const cmd = cmds[ci];
+      switch (cmd.type) {
+        case 'M': ctx.moveTo(cmd.x, cmd.y); break;
+        case 'L': ctx.lineTo(cmd.x, cmd.y); break;
+        case 'C': ctx.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y); break;
+        case 'Q': ctx.quadraticCurveTo(cmd.x1, cmd.y1, cmd.x, cmd.y); break;
+        case 'Z': ctx.closePath(); break;
+      }
+    }
+    // Fill first so stroke draws on top
+    if (P.fillOn) {
+      ctx.fillStyle = P.fillColor;
+      ctx.fill();
+    }
+    if (P.strokeOn) {
+      ctx.strokeStyle = P.strokeColor;
+      ctx.lineWidth   = P.strokeWidth;
+      ctx.lineJoin    = 'round';
+      ctx.stroke();
+    }
+
+    // Draw control points — always show base positions (editable), not noised
+    drawControlPoints(baseCmds, sel);
+
+  } else if (cg.geometry.type === 'text') {
+    // ── filled/stroked text ──
+    if (!cg._fontStr) cg._fontStr = `${cg.size}px "${cg.font}"`;
+    ctx.font         = cg._fontStr;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    // Stroke before fill so fill renders on top
+    if (P.strokeOn) {
+      ctx.strokeStyle = P.strokeColor;
+      ctx.lineWidth   = P.strokeWidth;
+      ctx.lineJoin    = 'round';
+      ctx.strokeText(cg.char, 0, 0);
+    }
+    if (P.fillOn) {
+      ctx.fillStyle = P.fillColor;
+      ctx.fillText(cg.char, 0, 0);
+    }
+
+  } else {
+    // ── vector fallback (font still loading) ──
+    if (!cg._fontStr) cg._fontStr = `${cg.size}px "${cg.font}"`;
+    ctx.font         = cg._fontStr;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    if (P.strokeOn) {
+      ctx.strokeStyle = P.strokeColor;
+      ctx.lineWidth   = P.strokeWidth;
+      ctx.lineJoin    = 'round';
+      ctx.strokeText(cg.char, 0, 0);
+    }
+    if (P.fillOn) {
+      ctx.fillStyle = P.fillColor;
+      ctx.fillText(cg.char, 0, 0);
+    }
+  }
+
+  ctx.restore();
+}
+
+// ── App state ────────────────────────────────────────────────────────────────
+let currentCG = null;
+let _lastTs   = null;
+let _accum    = 0;
+
+// Pre-allocated per-frame context — never recreated to avoid GC pressure
+const _cgsList = [];
+const _bCtx    = { cgs: _cgsList, time: 0, engine: AgentEngine };
+
+// Selection / drag state
+let sel      = null;   // { cmdIdx, role } — selected point
+let drag     = null;   // { cmdIdx, role, lastLX, lastLY } — active control-point drag
+let bodyDrag = null;   // { lastMX, lastMY } — active glyph-body drag
+
+function canvasCX() { return (window.innerWidth  - 240) / 2; }
+function canvasCY() { return  window.innerHeight        / 2; }
+
+function spawnCG(char) {
+  sel = null; drag = null; bodyDrag = null;
+  currentCG = makeCG(char, canvasCX(), canvasCY());
+  const otFont = fontCache.get(P.font);
+  if (otFont && otFont !== 'loading') initCGPath(currentCG, otFont);
+  else ensureFont(P.font);
+  updateCharDisplay(char);
+  if (danceActive) attachDance(currentCG);
+}
+
+function clearCG() {
+  sel = null; drag = null; bodyDrag = null;
+  currentCG = null;
+  updateCharDisplay(null);
+}
+
+// Keep live CG in sync with P when params change
+function syncCGtoP() {
+  if (!currentCG) return;
+  // Font or size change → discard edits and reinit path
+  if (currentCG.font !== P.font || currentCG.size !== P.size) {
+    currentCG._baseCmds     = null;
+    currentCG._displayCmds  = null;
+    currentCG._noiseState   = null;
+    currentCG._noiseSlots   = null;
+    currentCG._cachedPeriod = -1;
+    currentCG._fontStr      = null;
+    sel = null;
+  }
+  currentCG.font          = P.font;
+  currentCG.size          = P.size;
+  currentCG.material.fill = P.fillColor;
+  currentCG.geometry.type = P.renderMode;
+}
+
+// ── Render loop (fixed timestep) ─────────────────────────────────────────────
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  if (_lastTs === null) { _lastTs = ts; }
+  const elapsed = Math.min((ts - _lastTs) / 1000, 0.1);
+  _lastTs = ts;
+  _accum += elapsed;
+
+  _cgsList.length = 0;
+  if (currentCG) _cgsList.push(currentCG);
+  _bCtx.time = ts / 1000;
+  const _noiseP    = (currentCG && currentCG._danceParams) ? currentCG._danceParams : P;
+  const noiseActive = _noiseP.gaussAmt > 0 || _noiseP.poissonAmt > 0;
+  while (_accum >= FIXED_DT) {
+    AgentEngine.processFrame(FIXED_DT, _bCtx);
+    if (currentCG && currentCG._baseCmds && noiseActive && !P.frozen) {
+      updateNoiseState(currentCG, FIXED_DT, _noiseP);
+    }
+    _accum -= FIXED_DT;
+  }
+
+  ctx.fillStyle = P.bg;
+  ctx.fillRect(0, 0, _canvasW, _canvasH);
+  if (currentCG) drawCG(ctx, currentCG);
+}
+
+// ── Keyboard ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') {
+    clearCG(); return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) spawnCG(e.key);
+});
+
+// ── Control-point + body interaction ─────────────────────────────────────────
+const HIT_RADIUS = 12;   // px in canvas CSS coords
+
+function getCanvasXY(e) {
+  const r = canvas.getBoundingClientRect();
+  return { mx: e.clientX - r.left, my: e.clientY - r.top };
+}
+
+function bodyHitRadius(cg) { return cg.size * cg.scale * 0.55; }
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (!currentCG) return;
+  const { mx, my } = getCanvasXY(e);
+
+  // Control-point drag takes priority (vector mode only)
+  if (currentCG._baseCmds && currentCG.geometry.type === 'vector') {
+    const local = canvasToCGLocal(mx, my, currentCG);
+    const hit   = hitTestPoints(local.x, local.y, currentCG._baseCmds, HIT_RADIUS / currentCG.scale);
+    if (hit) {
+      sel  = hit;
+      drag = { ...hit, lastLX: local.x, lastLY: local.y };
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+      return;
+    } else {
+      sel = null;
+    }
+  }
+
+  // Body drag — works in both text and vector modes
+  const bdx = mx - currentCG.x, bdy = my - currentCG.y;
+  if (Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)) {
+    bodyDrag = { lastMX: mx, lastMY: my };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = 'grabbing';
+    e.preventDefault();
+  }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!currentCG) return;
+  const { mx, my } = getCanvasXY(e);
+
+  if (drag) {
+    // Move the dragged control-point coordinate in _baseCmds
+    const local = canvasToCGLocal(mx, my, currentCG);
+    const dx  = local.x - drag.lastLX;
+    const dy  = local.y - drag.lastLY;
+    const cmd = currentCG._baseCmds[drag.cmdIdx];
+    if (drag.role === 'anchor')     { cmd.x  += dx; cmd.y  += dy; }
+    else if (drag.role === 'cp1')   { cmd.x1 += dx; cmd.y1 += dy; }
+    else if (drag.role === 'cp2')   { cmd.x2 += dx; cmd.y2 += dy; }
+    drag.lastLX = local.x;
+    drag.lastLY = local.y;
+    e.preventDefault();
+
+  } else if (bodyDrag) {
+    // Reposition the glyph
+    const dx = mx - bodyDrag.lastMX;
+    const dy = my - bodyDrag.lastMY;
+    currentCG.x     += dx;
+    currentCG.y     += dy;
+    currentCG.homeX += dx;
+    currentCG.homeY += dy;
+    currentCG.dynamics.vx = 0;
+    currentCG.dynamics.vy = 0;
+    bodyDrag.lastMX = mx;
+    bodyDrag.lastMY = my;
+    e.preventDefault();
+
+  } else {
+    // Hover cursor
+    if (currentCG._baseCmds && currentCG.geometry.type === 'vector') {
+      const local = canvasToCGLocal(mx, my, currentCG);
+      const hit = hitTestPoints(local.x, local.y, currentCG._baseCmds, HIT_RADIUS / currentCG.scale);
+      canvas.style.cursor = hit ? 'pointer' : 'default';
+    } else {
+      const bdx = mx - currentCG.x, bdy = my - currentCG.y;
+      canvas.style.cursor = Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)
+        ? 'grab' : 'default';
+    }
+  }
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  drag     = null;
+  bodyDrag = null;
+  canvas.style.cursor = 'default';
+});
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function makeSection(title) {
+  const hd = document.createElement('div');
+  hd.className = 'sec-hd';
+  hd.textContent = title;
+  const bd = document.createElement('div');
+  bd.className = 'sec-bd';
+  hd.addEventListener('click', () => {
+    hd.classList.toggle('closed');
+    bd.classList.toggle('hidden');
+  });
+  return { hd, bd };
+}
+
+function makeSlider(label, min, max, step, getter, setter) {
+  const fmt = v => Number.isInteger(step) ? String(Math.round(v)) : v.toFixed(2);
+
+  const row = document.createElement('div');
+  row.className = 'param-row';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'param-header';
+
+  const lbl = document.createElement('span');
+  lbl.className = 'param-name';
+  lbl.textContent = label;
+
+  // Editable number input (replaces static span)
+  const numInp = document.createElement('input');
+  numInp.type = 'number'; numInp.className = 'param-val-input';
+  numInp.min = min; numInp.max = max; numInp.step = step;
+  numInp.value = fmt(getter());
+
+  hdr.appendChild(lbl);
+  hdr.appendChild(numInp);
+
+  const rangeInp = document.createElement('input');
+  rangeInp.type = 'range'; rangeInp.min = min; rangeInp.max = max; rangeInp.step = step;
+  rangeInp.value = getter();
+
+  // Range → number + P (live)
+  rangeInp.addEventListener('input', () => {
+    const v = parseFloat(rangeInp.value);
+    numInp.value = fmt(v);
+    setter(v);
+    if (currentCG) syncCGtoP();
+  });
+
+  // Number → range + P (on commit: Enter or blur)
+  function commitNum() {
+    let v = parseFloat(numInp.value);
+    if (isNaN(v)) v = getter();
+    v = Math.max(min, Math.min(max, Math.round(v / step) * step));
+    numInp.value = fmt(v);
+    rangeInp.value = v;
+    setter(v);
+    if (currentCG) syncCGtoP();
+  }
+  numInp.addEventListener('change', commitNum);
+  numInp.addEventListener('keydown', e => { if (e.key === 'Enter') numInp.blur(); });
+
+  row.appendChild(hdr);
+  row.appendChild(rangeInp);
+  return row;
+}
+
+function makeColorRow(label, getter, setter) {
+  const row = document.createElement('div');
+  row.className = 'color-row';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  const inp = document.createElement('input');
+  inp.type = 'color';
+  inp.value = getter();
+  inp.addEventListener('input', () => {
+    setter(inp.value);
+    if (currentCG) syncCGtoP();
+  });
+  row.appendChild(lbl);
+  row.appendChild(inp);
+  return row;
+}
+
+function makeSelectRow(label, options, getter, setter) {
+  const row = document.createElement('div');
+  row.className = 'sel-row';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  const sel = document.createElement('select');
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt; o.textContent = opt;
+    if (opt === getter()) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => {
+    setter(sel.value);
+    ensureFont(sel.value);
+    if (currentCG) syncCGtoP();
+  });
+  row.appendChild(lbl);
+  row.appendChild(sel);
+  return row;
+}
+
+function makeToggleRow(options, getter, setter) {
+  const row = document.createElement('div');
+  row.className = 'toggle-row';
+  const btns = options.map(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'tog-btn' + (opt.value === getter() ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.addEventListener('click', () => {
+      setter(opt.value);
+      btns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (opt.value === 'vector') ensureFont(P.font);
+      if (currentCG) syncCGtoP();
+    });
+    row.appendChild(btn);
+    return btn;
+  });
+  return row;
+}
+
+function makeSingleToggle(labelOn, labelOff, getter, setter) {
+  const row = document.createElement('div');
+  row.className = 'toggle-row';
+  const btn = document.createElement('button');
+  btn.className = 'tog-btn' + (getter() ? ' active' : '');
+  btn.textContent = getter() ? labelOn : labelOff;
+  btn.addEventListener('click', () => {
+    const next = !getter();
+    setter(next);
+    btn.classList.toggle('active', next);
+    btn.textContent = next ? labelOn : labelOff;
+  });
+  row.appendChild(btn);
+  return row;
+}
+
+function makeActionBtn(label, fn) {
+  const btn = document.createElement('button');
+  btn.className = 'action-btn';
+  btn.textContent = label;
+  btn.addEventListener('click', fn);
+  return btn;
+}
+
+// ── Char display ──────────────────────────────────────────────────────────────
+function updateCharDisplay(char) {
+  const el = document.getElementById('char-display');
+  if (!char) {
+    el.innerHTML = '<span style="color:#333">— press any key —</span>';
+  } else {
+    el.innerHTML = `<span class="char-big">${escapeHtml(char)}</span>` +
+      `<span style="color:#555">U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')}</span>`;
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Save system ───────────────────────────────────────────────────────────────
+const FSA_SUPPORTED = typeof window.showSaveFilePicker === 'function';
+let lastSaveHandle = null;   // FileSystemFileHandle — remembers last save location
+
+function showNamingDialog(defaultName) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.id = 'save-modal-overlay';
+    const modal = document.createElement('div');
+    modal.id = 'save-modal';
+
+    const label = document.createElement('label');
+    label.textContent = 'Name this state:';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = defaultName;
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirm();
+      if (e.key === 'Escape') cancel();
+      e.stopPropagation();  // prevent canvas key handler
+    });
+
+    const btns = document.createElement('div');
+    btns.className = 'modal-btns';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'cancel';
+    cancelBtn.textContent = 'Cancel';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+
+    btns.append(cancelBtn, saveBtn);
+    modal.append(label, input, btns);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // Focus after paint
+    requestAnimationFrame(() => { input.select(); input.focus(); });
+
+    function confirm() {
+      const name = input.value.trim();
+      cleanup();
+      resolve(name || null);
+    }
+    function cancel() { cleanup(); resolve(null); }
+
+    cancelBtn.addEventListener('click', cancel);
+    saveBtn.addEventListener('click', confirm);
+    overlay.addEventListener('click', e => { if (e.target === overlay) cancel(); });
+
+    function cleanup() { document.body.removeChild(overlay); }
+  });
+}
+
+async function saveStateToFile() {
+  if (!currentCG) return;
+  const defaultName = `${currentCG.char}-${currentCG.font.replace(/\s+/g,'-')}`;
+  const name = await showNamingDialog(defaultName);
+  if (!name) return;
+
+  const data = {
+    name,
+    char:      currentCG.char,
+    timestamp: new Date().toISOString(),
+    settings:  { ...P },
+    baseCmds:  currentCG._baseCmds ? currentCG._baseCmds.map(c => ({ ...c })) : null,
+  };
+  const json = JSON.stringify(data, null, 2);
+
+  if (FSA_SUPPORTED) {
+    try {
+      const opts = {
+        suggestedName: name.replace(/[^a-z0-9_-]/gi, '_') + '.json',
+        types: [{ description: 'Abecedarium State', accept: { 'application/json': ['.json'] } }],
+      };
+      if (lastSaveHandle) opts.startIn = lastSaveHandle;
+      const fh = await window.showSaveFilePicker(opts);
+      lastSaveHandle = fh;
+      const w = await fh.createWritable();
+      await w.write(json);
+      await w.close();
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('Save failed:', e);
+    }
+  } else {
+    // Fallback: blob download
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'),
+                   { href: url, download: name.replace(/[^a-z0-9_-]/gi, '_') + '.json' });
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function openStateFromFile() {
+  if (FSA_SUPPORTED) {
+    try {
+      const opts = {
+        types: [{ description: 'Abecedarium State', accept: { 'application/json': ['.json'] } }],
+        multiple: false,
+      };
+      if (lastSaveHandle) opts.startIn = lastSaveHandle;
+      const [fh] = await window.showOpenFilePicker(opts);
+      lastSaveHandle = fh;
+      const file = await fh.getFile();
+      const text = await file.text();
+      loadStateFromData(JSON.parse(text));
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('Open failed:', e);
+    }
+  } else {
+    // Fallback: hidden file input
+    const input = Object.assign(document.createElement('input'),
+                    { type: 'file', accept: '.json' });
+    input.addEventListener('change', async () => {
+      if (!input.files[0]) return;
+      const text = await input.files[0].text();
+      loadStateFromData(JSON.parse(text));
+    });
+    input.click();
+  }
+}
+
+function loadStateFromData(data) {
+  Object.assign(P, data.settings);
+  rebuildPanel();
+  spawnCG(data.char);
+  if (data.baseCmds && currentCG) {
+    currentCG._baseCmds     = data.baseCmds.map(c => ({ ...c }));
+    currentCG._displayCmds  = data.baseCmds.map(c => ({ ...c }));
+    currentCG._noiseState   = null;
+    currentCG._cachedPeriod = -1;
+  }
+}
+
+// Rebuild everything below the title (used after loadState to reflect new P values)
+function rebuildPanel() {
+  const panel = document.getElementById('panel');
+  while (panel.children.length > 1) panel.removeChild(panel.lastChild);
+  buildUI();
+}
+
+// ── Build panel UI ────────────────────────────────────────────────────────────
+function buildUI() {
+  const panel = document.getElementById('panel');
+
+  // ── Glyph ──
+  const glyphSec = makeSection('Glyph');
+  glyphSec.bd.appendChild(makeSelectRow('Font', FONTS,
+    () => P.font,
+    v  => { P.font = v; }
+  ));
+  glyphSec.bd.appendChild(makeSlider('Size', 12, 600, 1,
+    () => P.size,
+    v  => { P.size = v; }
+  ));
+  panel.appendChild(glyphSec.hd);
+  panel.appendChild(glyphSec.bd);
+
+  // ── Render ──
+  const renderSec = makeSection('Render');
+  renderSec.bd.appendChild(makeToggleRow(
+    [{ label: 'Text', value: 'text' }, { label: 'Vector', value: 'vector' }],
+    () => P.renderMode,
+    v  => { P.renderMode = v; }
+  ));
+  renderSec.bd.appendChild(makeSingleToggle('Anchors', 'Anchors',
+    () => P.showAnchors, v => { P.showAnchors = v; }
+  ));
+  renderSec.bd.appendChild(makeSingleToggle('Handles', 'Handles',
+    () => P.showHandles, v => { P.showHandles = v; }
+  ));
+  renderSec.bd.appendChild(makeSlider('Gaussian', 0, 50, 0.5,
+    () => P.gaussAmt,
+    v  => { P.gaussAmt = v; }
+  ));
+  renderSec.bd.appendChild(makeSlider('Poisson', 0, 50, 0.5,
+    () => P.poissonAmt,
+    v  => { P.poissonAmt = v; }
+  ));
+  renderSec.bd.appendChild(makeSlider('Smooth', 0, 0.99, 0.01,
+    () => P.noiseSmooth,
+    v  => { P.noiseSmooth = v; }
+  ));
+  renderSec.bd.appendChild(makeSlider('Period (s)', 0, 3, 0.05,
+    () => P.noisePeriod,
+    v  => { P.noisePeriod = v; }
+  ));
+  panel.appendChild(renderSec.hd);
+  panel.appendChild(renderSec.bd);
+
+  // ── Colour ──
+  const colSec = makeSection('Colour');
+  colSec.bd.appendChild(makeSingleToggle('Fill', 'Fill',
+    () => P.fillOn, v => { P.fillOn = v; }
+  ));
+  colSec.bd.appendChild(makeColorRow('Fill color',
+    () => P.fillColor, v => { P.fillColor = v; if (currentCG) currentCG.material.fill = v; }
+  ));
+  colSec.bd.appendChild(makeSingleToggle('Stroke', 'Stroke',
+    () => P.strokeOn, v => { P.strokeOn = v; }
+  ));
+  colSec.bd.appendChild(makeColorRow('Stroke color',
+    () => P.strokeColor, v => { P.strokeColor = v; }
+  ));
+  colSec.bd.appendChild(makeSlider('Stroke width', 0.5, 6, 0.5,
+    () => P.strokeWidth, v => { P.strokeWidth = v; }
+  ));
+  colSec.bd.appendChild(makeColorRow('Background', () => P.bg, v => { P.bg = v; }));
+  panel.appendChild(colSec.hd);
+  panel.appendChild(colSec.bd);
+
+  // ── Save ──
+  const saveSec = makeSection('Save');
+  saveSec.bd.appendChild(makeActionBtn('Save State', saveStateToFile));
+  saveSec.bd.appendChild(makeActionBtn('Open State', openStateFromFile));
+  panel.appendChild(saveSec.hd);
+  panel.appendChild(saveSec.bd);
+
+  // ── Dance ──
+  const danceSec = makeSection('Dance');
+  _danceBtn = makeActionBtn(danceActive ? 'Dance: On' : 'Dance: Off', () => {
+    danceActive = !danceActive;
+    _danceBtn.textContent   = danceActive ? 'Dance: On' : 'Dance: Off';
+    _danceBtn.style.color       = danceActive ? '#7af' : '';
+    _danceBtn.style.borderColor = danceActive ? '#2a4060' : '';
+    if (danceActive) { if (currentCG) attachDance(currentCG); }
+    else             { if (currentCG) detachDance(currentCG); }
+  });
+  if (danceActive) {
+    _danceBtn.style.color       = '#7af';
+    _danceBtn.style.borderColor = '#2a4060';
+  }
+  danceSec.bd.appendChild(_danceBtn);
+  panel.appendChild(danceSec.hd);
+  panel.appendChild(danceSec.bd);
+
+  // ── Actions ──
+  const actSec = makeSection('Actions');
+  actSec.bd.appendChild(makeActionBtn('Clear  (Esc / ⌫)', clearCG));
+
+  const freezeBtn = makeActionBtn('Freeze noise', () => {
+    P.frozen = !P.frozen;
+    freezeBtn.textContent = P.frozen ? 'Unfreeze noise' : 'Freeze noise';
+    freezeBtn.style.color       = P.frozen ? '#7af' : '';
+    freezeBtn.style.borderColor = P.frozen ? '#2a4060' : '';
+  });
+  actSec.bd.appendChild(freezeBtn);
+  panel.appendChild(actSec.hd);
+  panel.appendChild(actSec.bd);
+
+  // ── Char display + font status ──
+  const disp = document.createElement('div');
+  disp.id = 'char-display';
+  panel.appendChild(disp);
+  updateCharDisplay(null);
+
+  const status = document.createElement('div');
+  status.id = 'font-status';
+  panel.appendChild(status);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  if (currentCG) {
+    currentCG.x = currentCG.homeX = canvasCX();
+    currentCG.y = currentCG.homeY = canvasCY();
+  }
+});
+
+// URL params: ?char=A auto-spawns that letter at 400pt with Dance active
+const _urlChar = new URLSearchParams(window.location.search).get('char');
+if (_urlChar) { P.size = 400; danceActive = true; }
+
+resizeCanvas();
+buildUI();
+ensureFont(P.font);  // preload default font for vector mode
+requestAnimationFrame(loop);
+
+if (_urlChar) {
+  spawnCG(_urlChar[0]);
+  // Sync dance button appearance (danceActive already true, attachDance called in spawnCG)
+  if (_danceBtn) {
+    _danceBtn.textContent   = 'Dance: On';
+    _danceBtn.style.color       = '#7af';
+    _danceBtn.style.borderColor = '#2a4060';
+  }
+}
+</script>
+</body>
+</html>

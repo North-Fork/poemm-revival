@@ -24,15 +24,20 @@ html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
 }
 
 .sec-hd {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
-  color: #555; margin: 12px 0 5px;
-  border-top: 1px solid #1e1e1e; padding-top: 8px;
+  display: flex; align-items: center; gap: 6px;
   cursor: pointer; user-select: none;
+  padding: 10px 4px 4px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: #6b7280;
+  border-top: 1px solid #1e1e1e; margin-top: 4px;
 }
-.sec-hd:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
-.sec-hd::after        { content: ' ▾'; float: right; }
-.sec-hd.closed::after { content: ' ▸'; }
-.sec-bd.hidden        { display: none; }
+.sec-hd:hover { color: #9ca3af; }
+.sec-arrow {
+  display: inline-block; font-size: 8px; flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.sec-arrow.open { transform: rotate(90deg); }
+.sec-bd.hidden  { display: none; }
 
 /* Param rows */
 .param-row    { margin: 6px 0; }
@@ -80,6 +85,41 @@ input[type=range]::-webkit-slider-thumb {
   border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
 }
 
+/* Subsections (nested within a section) */
+.subsec-hd {
+  display: flex; align-items: center; gap: 5px;
+  cursor: pointer; user-select: none;
+  padding: 7px 4px 3px 6px;
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: #4b5563;
+  border-top: 1px solid #1a1a1a; margin-top: 3px;
+}
+.subsec-hd:hover { color: #6b7280; }
+.subsec-arrow {
+  display: inline-block; font-size: 7px; flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.subsec-arrow.open { transform: rotate(90deg); }
+.subsec-bd { padding-left: 6px; }
+.subsec-bd.hidden { display: none; }
+.subsec-stub { font-size: 10px; color: #333; padding: 4px 0 2px; font-style: italic; }
+
+/* Behaviour rows: [checkbox] Label [──slider──] value */
+.beh-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.beh-row input[type=checkbox] { cursor: pointer; accent-color: #7af; flex-shrink: 0; }
+.beh-row .beh-label { font-size: 10px; color: #888; cursor: pointer; flex-shrink: 0; width: 36px; }
+.beh-row input[type=range] { flex: 1; width: auto; }
+.beh-row .param-val-input { width: 36px; }
+
+/* Checkbox + color picker rows (Fill, Stroke) */
+.check-color-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.check-color-row input[type=checkbox] { cursor: pointer; accent-color: #7af; flex-shrink: 0; }
+.check-color-row label { font-size: 10px; color: #888; flex: 1; cursor: pointer; }
+.check-color-row input[type=color] {
+  width: 28px; height: 18px; padding: 1px 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #111; border-radius: 3px;
+}
+
 /* Toggle buttons (Render mode) */
 .toggle-row { display: flex; gap: 6px; margin: 6px 0; }
 .tog-btn {
@@ -118,6 +158,13 @@ input[type=range]::-webkit-slider-thumb {
 #font-status.loading { color: #874; }
 #font-status.ready   { color: #474; }
 #font-status.failed  { color: #744; }
+#save-status {
+  font-size: 9px; text-align: center; margin-top: 6px;
+  min-height: 14px; font-family: monospace; transition: opacity 0.4s;
+}
+#save-status.ok  { color: #474; }
+#save-status.err { color: #744; }
+#save-status.rec { color: #f77; }
 
 /* Save modal */
 #save-modal-overlay {
@@ -145,6 +192,8 @@ input[type=range]::-webkit-slider-thumb {
 
 /* Canvas */
 canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: block; }
+/* Overlay canvas — anchors/handles only; pointer-events: none keeps clicks passing to #c */
+#ov { pointer-events: none; z-index: 1; }
 </style>
 </head>
 <body>
@@ -155,6 +204,7 @@ canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: bloc
 </div>
 
 <canvas id="c"></canvas>
+<canvas id="ov"></canvas>
 
 <!-- opentype.js for true bezier glyph paths + control points -->
 <script src="https://unpkg.com/opentype.js@1.3.4/dist/opentype.min.js"></script>
@@ -184,6 +234,9 @@ const P = {
   poissonAmt:  0,             // Poisson noise λ (canvas px, layered on Gaussian)
   noiseSmooth: 0,             // 0 = instant/choppy → 0.99 = very smooth/billowing
   noisePeriod: 0,             // seconds between target resamples (0 = every physics tick)
+  perlinAmt:   0,             // Perlin noise amplitude (canvas px)
+  perlinFreq:  0.008,         // spatial frequency (controls tile density over glyph)
+  perlinSpeed: 0.15,          // animation speed (units/sec along time axis)
   frozen:      false,         // pause noise evolution
   showAnchors: true,          // draw on-curve anchor points
   showHandles: true,          // draw off-curve control handles + lines
@@ -200,9 +253,10 @@ const DANCE_DEFAULT = {
 const DANCE = {
   'A': {
     gaussAmt: 2.4, poissonAmt: 6.6, noiseSmooth: 0.92, noisePeriod: 2.5,
-    driftAmt: 2,  driftSpeed: 0.08,
+    driftAmt: 0,  driftSpeed: 0.08,
     spinAmt:  0.025, spinSpeed: 0.07,
     pulseAmt: 0.025, pulseSpeed: 0.14,
+    plantFeet: true,
   },
 };
 
@@ -261,6 +315,15 @@ async function ensureFont(name) {
   }
 }
 
+let _saveStatusTimer = null;
+function setSaveStatus(cls, msg) {
+  const el = document.getElementById('save-status');
+  if (!el) return;
+  el.className = cls; el.textContent = msg; el.style.opacity = '1';
+  clearTimeout(_saveStatusTimer);
+  _saveStatusTimer = setTimeout(() => { el.style.opacity = '0'; }, 6000);
+}
+
 function setFontStatus(cls, msg) {
   const el = document.getElementById('font-status');
   if (!el) return;
@@ -293,6 +356,7 @@ function makeCG(char, x, y) {
     z:        0,
     homeX: x, homeY: y,
     rotation: 0,
+    shear:    0,
     scale:    1,
     dynamics: {
       vx: 0, vy: 0,
@@ -355,15 +419,24 @@ const DanceBehavior = (() => {
       const t = bCtx.time;
       if (!cg._state.has(sym)) cg._state.set(sym, { baseScale: cg.scale });
       const st = cg._state.get(sym);
-      // Drift — two incommensurate oscillators for organic 2-D wander
-      if (dp.driftAmt > 0) {
-        cg.x = cg.homeX + Math.sin(t * dp.driftSpeed * TAU) * dp.driftAmt;
-        cg.y = cg.homeY + Math.sin(t * dp.driftSpeed * TAU * 1.618 + 1.0) * dp.driftAmt * 0.7;
-      }
       // Spin
       cg.rotation = Math.sin(t * dp.spinSpeed * TAU) * dp.spinAmt;
       // Scale pulse
       cg.scale = st.baseScale * (1 + Math.sin(t * dp.pulseSpeed * TAU) * dp.pulseAmt);
+      // Body position
+      if (dp.plantFeet && cg._footY != null) {
+        // Shear-bend: foot row stays flat on the ground, stem bends above it.
+        // cg.shear drives the canvas shear transform in drawCG.
+        // cg.y is adjusted so the foot row stays at the same world Y under scale.
+        cg.shear    = Math.sin(t * dp.spinSpeed * TAU) * dp.spinAmt;
+        cg.rotation = 0;
+        cg.x = cg.homeX;
+        cg.y = cg.homeY + cg._footY * (1 - cg.scale);
+      } else if (dp.driftAmt > 0) {
+        // Drift — two incommensurate oscillators for organic 2-D wander
+        cg.x = cg.homeX + Math.sin(t * dp.driftSpeed * TAU) * dp.driftAmt;
+        cg.y = cg.homeY + Math.sin(t * dp.driftSpeed * TAU * 1.618 + 1.0) * dp.driftAmt * 0.7;
+      }
       // Zero dynamics so they don't fight body movement
       cg.dynamics.vx = 0;
       cg.dynamics.vy = 0;
@@ -373,7 +446,27 @@ const DanceBehavior = (() => {
 })();
 
 let danceActive = false;
-let _danceBtn   = null;   // panel button ref — set in buildUI
+let _danceCb   = null;   // dance checkbox ref — set in buildUI, synced on URL-param load
+
+// ── Alphabet auto-run ─────────────────────────────────────────────────────────
+const AUTO_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+let _autoRunning   = false;
+let _autoIndex     = 0;
+let _autoTimer     = null;
+let _autoDwell     = 5;      // seconds per letter
+let _autoUppercase = true;   // true = A-Z, false = a-z
+let _autoRunBtn    = null;   // button ref — set in buildUI
+
+// ── Video recording state ─────────────────────────────────────────────────────
+let _mediaRecorder    = null;
+let _recCaptureCursor = false;
+let _cursorX          = -1;
+let _cursorY          = -1;
+let _mouseDown        = false;
+let _recChunks      = [];
+let _recStartTime   = 0;
+let _recTimerHandle = null;
+let _recBtn         = null;  // button ref — set in buildUI
 
 function attachDance(cg) {
   if (!cg) return;
@@ -389,12 +482,17 @@ function detachDance(cg) {
   cg._state.delete(DanceBehavior.sym);
   cg.behaviours = cg.behaviours.filter(b => b.type !== DanceBehavior);
   cg.rotation = 0;
+  cg.shear    = 0;
   cg.scale    = st ? st.baseScale : 1;
+  cg.x = cg.homeX;
+  cg.y = cg.homeY;
 }
 
 // ── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
+const ov     = document.getElementById('ov');
+const octx   = ov.getContext('2d');
 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -405,6 +503,55 @@ function resizeCanvas() {
   canvas.style.width  = _canvasW + 'px';
   canvas.style.height = _canvasH + 'px';
   ctx.scale(dpr, dpr);
+  ov.width  = _canvasW * dpr;
+  ov.height = _canvasH * dpr;
+  ov.style.width  = _canvasW + 'px';
+  ov.style.height = _canvasH + 'px';
+  octx.scale(dpr, dpr);
+}
+
+// ── Perlin gradient noise (Ken Perlin's improved noise, 3D) ──────────────────
+// Output range ≈ −1 … +1.  Use perlin3(bx*freq, by*freq, t*speed) for
+// spatially-coherent outline displacement that animates smoothly over time.
+let _renderTime = 0;   // updated each render frame; read by applyNoiseState
+
+const _PERM = (() => {
+  const p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,
+    30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,
+    219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,
+    175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,
+    230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,
+    76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,
+    186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,
+    59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,
+    70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,
+    178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,
+    241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,
+    176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,
+    128,195,78,66,215,61,156,180];
+  const p2 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++) p2[i] = p[i & 255];
+  return p2;
+})();
+function _fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function _grad3(h, x, y, z) {
+  h &= 15;
+  const u = h < 8 ? x : y;
+  const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function perlin3(x, y, z) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+  x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+  const u = _fade(x), v = _fade(y), w = _fade(z);
+  const p = _PERM;
+  const A = p[X]+Y, AA = p[A]+Z, AB = p[A+1]+Z, B = p[X+1]+Y, BA = p[B]+Z, BB = p[B+1]+Z;
+  const lerp = (a, b, t) => a + t * (b - a);
+  return lerp(
+    lerp(lerp(_grad3(p[AA],  x,   y,   z),  _grad3(p[BA],  x-1, y,   z),  u),
+         lerp(_grad3(p[AB],  x,   y-1, z),  _grad3(p[BB],  x-1, y-1, z),  u), v),
+    lerp(lerp(_grad3(p[AA+1],x,   y,   z-1),_grad3(p[BA+1],x-1, y,   z-1),u),
+         lerp(_grad3(p[AB+1],x,   y-1, z-1),_grad3(p[BB+1],x-1, y-1, z-1),u), v), w);
 }
 
 // ── Gaussian noise ────────────────────────────────────────────────────────────
@@ -495,27 +642,48 @@ function updateNoiseState(cg, dt, pp) {
 }
 
 // Writes displaced coordinates into displayCmds in-place — no allocation.
+// noiseState may be null when only Perlin noise is active.
+// Perlin is sampled from base coordinates + _renderTime so it is spatially coherent.
 function applyNoiseState(baseCmds, noiseState, displayCmds) {
+  const perlinOn = P.perlinAmt > 0 && !P.frozen;
+  const pa = P.perlinAmt, pf = P.perlinFreq, ps = P.perlinSpeed, t = _renderTime;
   let i = 0;
   for (let j = 0; j < baseCmds.length; j++) {
     const src = baseCmds[j], dst = displayCmds[j];
     switch (src.type) {
       case 'M': case 'L': {
-        const s = noiseState[i++];
-        dst.x = src.x + s.cx;  dst.y = src.y + s.cy;
+        const gcx = noiseState ? noiseState[i].cx : 0;
+        const gcy = noiseState ? noiseState[i].cy : 0;
+        i++;
+        const ppx = perlinOn ? perlin3(src.x * pf,        src.y * pf,        t * ps) * pa : 0;
+        const ppy = perlinOn ? perlin3(src.x * pf + 47.3, src.y * pf + 91.7, t * ps) * pa : 0;
+        dst.x = src.x + gcx + ppx;  dst.y = src.y + gcy + ppy;
         break;
       }
       case 'C': {
-        const s1 = noiseState[i++], s2 = noiseState[i++], s3 = noiseState[i++];
-        dst.x1 = src.x1 + s1.cx;  dst.y1 = src.y1 + s1.cy;
-        dst.x2 = src.x2 + s2.cx;  dst.y2 = src.y2 + s2.cy;
-        dst.x  = src.x  + s3.cx;  dst.y  = src.y  + s3.cy;
+        const p1x = noiseState ? noiseState[i].cx : 0, p1y = noiseState ? noiseState[i].cy : 0; i++;
+        const p2x = noiseState ? noiseState[i].cx : 0, p2y = noiseState ? noiseState[i].cy : 0; i++;
+        const p3x = noiseState ? noiseState[i].cx : 0, p3y = noiseState ? noiseState[i].cy : 0; i++;
+        const n1x = perlinOn ? perlin3(src.x1*pf,       src.y1*pf,       t*ps)*pa : 0;
+        const n1y = perlinOn ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
+        const n2x = perlinOn ? perlin3(src.x2*pf,       src.y2*pf,       t*ps)*pa : 0;
+        const n2y = perlinOn ? perlin3(src.x2*pf+47.3,  src.y2*pf+91.7,  t*ps)*pa : 0;
+        const n3x = perlinOn ? perlin3(src.x *pf,       src.y *pf,       t*ps)*pa : 0;
+        const n3y = perlinOn ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
+        dst.x1 = src.x1 + p1x + n1x;  dst.y1 = src.y1 + p1y + n1y;
+        dst.x2 = src.x2 + p2x + n2x;  dst.y2 = src.y2 + p2y + n2y;
+        dst.x  = src.x  + p3x + n3x;  dst.y  = src.y  + p3y + n3y;
         break;
       }
       case 'Q': {
-        const s1 = noiseState[i++], s2 = noiseState[i++];
-        dst.x1 = src.x1 + s1.cx;  dst.y1 = src.y1 + s1.cy;
-        dst.x  = src.x  + s2.cx;  dst.y  = src.y  + s2.cy;
+        const q1x = noiseState ? noiseState[i].cx : 0, q1y = noiseState ? noiseState[i].cy : 0; i++;
+        const q2x = noiseState ? noiseState[i].cx : 0, q2y = noiseState ? noiseState[i].cy : 0; i++;
+        const n1x = perlinOn ? perlin3(src.x1*pf,       src.y1*pf,       t*ps)*pa : 0;
+        const n1y = perlinOn ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
+        const n2x = perlinOn ? perlin3(src.x *pf,       src.y *pf,       t*ps)*pa : 0;
+        const n2y = perlinOn ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
+        dst.x1 = src.x1 + q1x + n1x;  dst.y1 = src.y1 + q1y + n1y;
+        dst.x  = src.x  + q2x + n2x;  dst.y  = src.y  + q2y + n2y;
         break;
       }
       // Z: no coordinates
@@ -539,6 +707,7 @@ function initCGPath(cg, otFont) {
   cg._noiseSlots   = null;   // cached slot count — set when noise state is inited
   cg._cachedPeriod = -1;     // force re-stagger on next init
   cg._fontStr      = `${cg.size}px "${cg.font}"`;  // cached ctx.font string
+  cg._footY        = baselineY;  // local Y of the glyph baseline (feet) — for plantFeet dance
 }
 
 // ── Pointer → CG local coordinate transform ──────────────────────────────────
@@ -583,7 +752,7 @@ function hitTestPoints(lx, ly, cmds, radius) {
 // All non-selected handles → 1 stroke
 // Selected handle (0 or 1) → 1 stroke
 
-function drawControlPoints(commands, sel) {
+function drawControlPoints(xctx, commands, sel) {
   const selIdx  = sel ? sel.cmdIdx : -1;
   const selRole = sel ? sel.role   : '';
   const n = commands.length;
@@ -591,7 +760,7 @@ function drawControlPoints(commands, sel) {
   // Batch 1: handle lines
   if (P.showHandles) {
     let px = 0, py = 0, fx = 0, fy = 0;
-    ctx.beginPath();
+    xctx.beginPath();
     for (let i = 0; i < n; i++) {
       const cmd = commands[i];
       if (cmd.type === 'M') {
@@ -599,98 +768,116 @@ function drawControlPoints(commands, sel) {
       } else if (cmd.type === 'L') {
         px = cmd.x; py = cmd.y;
       } else if (cmd.type === 'C') {
-        ctx.moveTo(px, py);   ctx.lineTo(cmd.x1, cmd.y1);
-        ctx.moveTo(cmd.x, cmd.y); ctx.lineTo(cmd.x2, cmd.y2);
+        xctx.moveTo(px, py);       xctx.lineTo(cmd.x1, cmd.y1);
+        xctx.moveTo(cmd.x, cmd.y); xctx.lineTo(cmd.x2, cmd.y2);
         px = cmd.x; py = cmd.y;
       } else if (cmd.type === 'Q') {
-        ctx.moveTo(px, py);   ctx.lineTo(cmd.x1, cmd.y1);
-        ctx.moveTo(cmd.x, cmd.y); ctx.lineTo(cmd.x1, cmd.y1);
+        xctx.moveTo(px, py);       xctx.lineTo(cmd.x1, cmd.y1);
+        xctx.moveTo(cmd.x, cmd.y); xctx.lineTo(cmd.x1, cmd.y1);
         px = cmd.x; py = cmd.y;
       } else if (cmd.type === 'Z') {
         px = fx; py = fy;
       }
     }
-    ctx.strokeStyle = 'rgba(250,170,70,0.4)';
-    ctx.lineWidth = 0.75;
-    ctx.setLineDash(EMPTY_DASH);
-    ctx.stroke();
+    xctx.strokeStyle = 'rgba(250,170,70,0.4)';
+    xctx.lineWidth = 0.75;
+    xctx.setLineDash(EMPTY_DASH);
+    xctx.stroke();
   }
 
   // Batch 2: non-selected anchors (one fill pass)
   if (P.showAnchors) {
-    ctx.beginPath();
+    xctx.beginPath();
     for (let i = 0; i < n; i++) {
       const cmd = commands[i];
       if ((cmd.type === 'M' || cmd.type === 'L' || cmd.type === 'C' || cmd.type === 'Q') &&
           !(i === selIdx && selRole === 'anchor')) {
-        ctx.moveTo(cmd.x + 4, cmd.y);
-        ctx.arc(cmd.x, cmd.y, 4, 0, TAU);
+        xctx.moveTo(cmd.x + 4, cmd.y);
+        xctx.arc(cmd.x, cmd.y, 4, 0, TAU);
       }
     }
-    ctx.fillStyle = '#7af';
-    ctx.fill();
+    xctx.fillStyle = '#7af';
+    xctx.fill();
 
     // Selected anchor (at most 1)
     if (selIdx >= 0 && selRole === 'anchor' && selIdx < n) {
       const cmd = commands[selIdx];
-      ctx.beginPath();
-      ctx.arc(cmd.x, cmd.y, 6, 0, TAU);
-      ctx.fillStyle = '#bdf';
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      xctx.beginPath();
+      xctx.arc(cmd.x, cmd.y, 6, 0, TAU);
+      xctx.fillStyle = '#bdf';
+      xctx.fill();
+      xctx.strokeStyle = '#fff';
+      xctx.lineWidth = 1;
+      xctx.stroke();
     }
   }
 
   // Batch 3: non-selected handle circles (one stroke pass)
   if (P.showHandles) {
-    ctx.beginPath();
+    xctx.beginPath();
     for (let i = 0; i < n; i++) {
       const cmd = commands[i];
       if (cmd.type === 'C') {
         if (!(i === selIdx && selRole === 'cp1')) {
-          ctx.moveTo(cmd.x1 + 3, cmd.y1);
-          ctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
+          xctx.moveTo(cmd.x1 + 3, cmd.y1);
+          xctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
         }
         if (!(i === selIdx && selRole === 'cp2')) {
-          ctx.moveTo(cmd.x2 + 3, cmd.y2);
-          ctx.arc(cmd.x2, cmd.y2, 3, 0, TAU);
+          xctx.moveTo(cmd.x2 + 3, cmd.y2);
+          xctx.arc(cmd.x2, cmd.y2, 3, 0, TAU);
         }
       } else if (cmd.type === 'Q') {
         if (!(i === selIdx && selRole === 'cp1')) {
-          ctx.moveTo(cmd.x1 + 3, cmd.y1);
-          ctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
+          xctx.moveTo(cmd.x1 + 3, cmd.y1);
+          xctx.arc(cmd.x1, cmd.y1, 3, 0, TAU);
         }
       }
     }
-    ctx.strokeStyle = '#fa7';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash(EMPTY_DASH);
-    ctx.stroke();
+    xctx.strokeStyle = '#fa7';
+    xctx.lineWidth = 1.5;
+    xctx.setLineDash(EMPTY_DASH);
+    xctx.stroke();
 
     // Selected handle (at most 1)
     if (selIdx >= 0 && (selRole === 'cp1' || selRole === 'cp2') && selIdx < n) {
       const cmd = commands[selIdx];
       const hx = selRole === 'cp1' ? cmd.x1 : cmd.x2;
       const hy = selRole === 'cp1' ? cmd.y1 : cmd.y2;
-      ctx.beginPath();
-      ctx.arc(hx, hy, 5, 0, TAU);
-      ctx.strokeStyle = '#fdb';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      xctx.beginPath();
+      xctx.arc(hx, hy, 5, 0, TAU);
+      xctx.strokeStyle = '#fdb';
+      xctx.lineWidth = 2;
+      xctx.stroke();
     }
   }
 }
 
 // ── drawCG ───────────────────────────────────────────────────────────────────
-function drawCG(ctx, cg) {
-  ctx.save();
-  ctx.translate(cg.x, cg.y);
-  ctx.rotate(cg.rotation);
-  ctx.scale(cg.scale, cg.scale);
-  ctx.globalAlpha = cg.material.opacity;
-  ctx.globalCompositeOperation = cg.material.blendMode;
+// dc: drawing context — omit (or pass null) for normal render (uses ctx + octx overlay).
+//     Pass an offscreen context for export (no overlay, no animation state mutation).
+function drawCG(cg, dc) {
+  const isExport = !!dc;
+  if (!dc) dc = ctx;
+
+  dc.save();
+  if (!isExport) octx.save();
+  dc.translate(cg.x, cg.y);
+  if (!isExport) octx.translate(cg.x, cg.y);
+  if (cg.shear !== 0 && cg._footY != null) {
+    // Planted-feet shear: foot row stays fixed, stem bends above it.
+    dc.scale(cg.scale, cg.scale);
+    if (!isExport) octx.scale(cg.scale, cg.scale);
+    const k = cg.shear, fy = cg._footY;
+    dc.transform(1, 0, -k, 1, k * fy, 0);
+    if (!isExport) octx.transform(1, 0, -k, 1, k * fy, 0);
+  } else {
+    dc.rotate(cg.rotation);
+    if (!isExport) octx.rotate(cg.rotation);
+    dc.scale(cg.scale, cg.scale);
+    if (!isExport) octx.scale(cg.scale, cg.scale);
+  }
+  dc.globalAlpha = cg.material.opacity;
+  dc.globalCompositeOperation = cg.material.blendMode;
 
   const otFont = fontCache.get(cg.font);
   const fontReady = otFont && otFont !== 'loading';
@@ -700,77 +887,74 @@ function drawCG(ctx, cg) {
     if (!cg._baseCmds) initCGPath(cg, otFont);
     const baseCmds = cg._baseCmds;
 
-    const _np = cg._danceParams || P;
-    const noiseActive = _np.gaussAmt > 0 || _np.poissonAmt > 0;
-    if (noiseActive && cg._noiseState && cg._displayCmds) {
+    const noiseActive = P.gaussAmt > 0 || P.poissonAmt > 0 || P.perlinAmt > 0;
+    if (noiseActive && cg._displayCmds) {
       applyNoiseState(baseCmds, cg._noiseState, cg._displayCmds);
     }
     const cmds = (noiseActive && cg._displayCmds) ? cg._displayCmds : baseCmds;
 
-    // Build path — indexed loop avoids iterator allocation
-    ctx.beginPath();
+    dc.beginPath();
     for (let ci = 0; ci < cmds.length; ci++) {
       const cmd = cmds[ci];
       switch (cmd.type) {
-        case 'M': ctx.moveTo(cmd.x, cmd.y); break;
-        case 'L': ctx.lineTo(cmd.x, cmd.y); break;
-        case 'C': ctx.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y); break;
-        case 'Q': ctx.quadraticCurveTo(cmd.x1, cmd.y1, cmd.x, cmd.y); break;
-        case 'Z': ctx.closePath(); break;
+        case 'M': dc.moveTo(cmd.x, cmd.y); break;
+        case 'L': dc.lineTo(cmd.x, cmd.y); break;
+        case 'C': dc.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y); break;
+        case 'Q': dc.quadraticCurveTo(cmd.x1, cmd.y1, cmd.x, cmd.y); break;
+        case 'Z': dc.closePath(); break;
       }
     }
-    // Fill first so stroke draws on top
     if (P.fillOn) {
-      ctx.fillStyle = P.fillColor;
-      ctx.fill();
+      dc.fillStyle = P.fillColor;
+      dc.fill();
     }
     if (P.strokeOn) {
-      ctx.strokeStyle = P.strokeColor;
-      ctx.lineWidth   = P.strokeWidth;
-      ctx.lineJoin    = 'round';
-      ctx.stroke();
+      dc.strokeStyle = P.strokeColor;
+      dc.lineWidth   = P.strokeWidth;
+      dc.lineJoin    = 'round';
+      dc.stroke();
     }
 
-    // Draw control points — always show base positions (editable), not noised
-    drawControlPoints(baseCmds, sel);
+    // Control points go on overlay only (not in exports/recordings)
+    if (!isExport) drawControlPoints(octx, baseCmds, sel);
 
   } else if (cg.geometry.type === 'text') {
     // ── filled/stroked text ──
     if (!cg._fontStr) cg._fontStr = `${cg.size}px "${cg.font}"`;
-    ctx.font         = cg._fontStr;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    // Stroke before fill so fill renders on top
+    dc.font         = cg._fontStr;
+    dc.textAlign    = 'center';
+    dc.textBaseline = 'middle';
     if (P.strokeOn) {
-      ctx.strokeStyle = P.strokeColor;
-      ctx.lineWidth   = P.strokeWidth;
-      ctx.lineJoin    = 'round';
-      ctx.strokeText(cg.char, 0, 0);
+      dc.strokeStyle = P.strokeColor;
+      dc.lineWidth   = P.strokeWidth;
+      dc.lineJoin    = 'round';
+      dc.strokeText(cg.char, 0, 0);
     }
     if (P.fillOn) {
-      ctx.fillStyle = P.fillColor;
-      ctx.fillText(cg.char, 0, 0);
+      dc.fillStyle = P.fillColor;
+      dc.fillText(cg.char, 0, 0);
     }
 
   } else {
     // ── vector fallback (font still loading) ──
     if (!cg._fontStr) cg._fontStr = `${cg.size}px "${cg.font}"`;
-    ctx.font         = cg._fontStr;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
+    dc.font         = cg._fontStr;
+    dc.textAlign    = 'center';
+    dc.textBaseline = 'middle';
     if (P.strokeOn) {
-      ctx.strokeStyle = P.strokeColor;
-      ctx.lineWidth   = P.strokeWidth;
-      ctx.lineJoin    = 'round';
-      ctx.strokeText(cg.char, 0, 0);
+      dc.strokeStyle = P.strokeColor;
+      dc.lineWidth   = P.strokeWidth;
+      dc.lineJoin    = 'round';
+      dc.strokeText(cg.char, 0, 0);
     }
     if (P.fillOn) {
-      ctx.fillStyle = P.fillColor;
-      ctx.fillText(cg.char, 0, 0);
+      dc.fillStyle = P.fillColor;
+      dc.fillText(cg.char, 0, 0);
     }
   }
 
-  ctx.restore();
+  dc.restore();
+  if (!isExport) octx.restore();
 }
 
 // ── App state ────────────────────────────────────────────────────────────────
@@ -837,19 +1021,36 @@ function loop(ts) {
   _cgsList.length = 0;
   if (currentCG) _cgsList.push(currentCG);
   _bCtx.time = ts / 1000;
-  const _noiseP    = (currentCG && currentCG._danceParams) ? currentCG._danceParams : P;
-  const noiseActive = _noiseP.gaussAmt > 0 || _noiseP.poissonAmt > 0;
+  _renderTime = ts / 1000;
+  // Panel (P) is always the source for Independent noise — dance doesn't override it.
+  const indNoiseActive = P.gaussAmt > 0 || P.poissonAmt > 0;
   while (_accum >= FIXED_DT) {
     AgentEngine.processFrame(FIXED_DT, _bCtx);
-    if (currentCG && currentCG._baseCmds && noiseActive && !P.frozen) {
-      updateNoiseState(currentCG, FIXED_DT, _noiseP);
+    if (currentCG && currentCG._baseCmds && indNoiseActive && !P.frozen) {
+      updateNoiseState(currentCG, FIXED_DT, P);
+    }
+    // Keep glyph pinned while user is dragging — stops DanceBehavior drift fighting the drag
+    if (bodyDrag && currentCG) {
+      currentCG.dynamics.vx = 0;
+      currentCG.dynamics.vy = 0;
     }
     _accum -= FIXED_DT;
   }
 
   ctx.fillStyle = P.bg;
   ctx.fillRect(0, 0, _canvasW, _canvasH);
-  if (currentCG) drawCG(ctx, currentCG);
+  octx.clearRect(0, 0, _canvasW, _canvasH);
+  if (currentCG) drawCG(currentCG);
+  if (_recCaptureCursor && _mouseDown && _cursorX >= 0) {
+    ctx.save();
+    ctx.font         = '24px serif';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'top';
+    ctx.shadowColor  = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur   = 4;
+    ctx.fillText('✊', _cursorX - 12, _cursorY - 20);
+    ctx.restore();
+  }
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
@@ -860,7 +1061,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') {
     clearCG(); return;
   }
-  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) spawnCG(e.key);
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { stopAutoRun(); spawnCG(e.key); }
 });
 
 // ── Control-point + body interaction ─────────────────────────────────────────
@@ -894,14 +1095,20 @@ canvas.addEventListener('pointerdown', (e) => {
   }
 
   // Body drag — works in both text and vector modes
+  // During auto-run, any click (that didn't hit a control point) grabs the glyph.
   const bdx = mx - currentCG.x, bdy = my - currentCG.y;
-  if (Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)) {
+  if (_autoRunning || Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)) {
     bodyDrag = { lastMX: mx, lastMY: my };
     canvas.setPointerCapture(e.pointerId);
     canvas.style.cursor = 'grabbing';
     e.preventDefault();
   }
 });
+
+document.addEventListener('pointermove',  (e) => { _cursorX = e.clientX - 240; _cursorY = e.clientY; });
+document.addEventListener('pointerdown',  ()  => { _mouseDown = true; });
+document.addEventListener('pointerup',    ()  => { _mouseDown = false; });
+document.addEventListener('pointercancel',()  => { _mouseDown = false; });
 
 canvas.addEventListener('pointermove', (e) => {
   if (!currentCG) return;
@@ -955,17 +1162,76 @@ canvas.addEventListener('pointerup', (e) => {
 });
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
-function makeSection(title) {
+// Tracks which sections/subsections the user has explicitly opened or closed.
+// Keys are titles. Values: true = open, false = closed. Absent = use default.
+const _secState = new Map();
+
+function makeSection(title, startOpen = true) {
+  const isOpen = _secState.has(title) ? _secState.get(title) : startOpen;
   const hd = document.createElement('div');
   hd.className = 'sec-hd';
-  hd.textContent = title;
+  const arrow = document.createElement('span');
+  arrow.className = 'sec-arrow' + (isOpen ? ' open' : '');
+  arrow.textContent = '▶';
+  hd.appendChild(arrow);
+  hd.appendChild(document.createTextNode(title));
   const bd = document.createElement('div');
   bd.className = 'sec-bd';
+  if (!isOpen) bd.classList.add('hidden');
   hd.addEventListener('click', () => {
-    hd.classList.toggle('closed');
+    arrow.classList.toggle('open');
     bd.classList.toggle('hidden');
+    _secState.set(title, arrow.classList.contains('open'));
   });
   return { hd, bd };
+}
+
+function makeSubSection(title, startOpen = true) {
+  const isOpen = _secState.has(title) ? _secState.get(title) : startOpen;
+  const hd = document.createElement('div');
+  hd.className = 'subsec-hd';
+  const arrow = document.createElement('span');
+  arrow.className = 'subsec-arrow' + (isOpen ? ' open' : '');
+  arrow.textContent = '▶';
+  hd.appendChild(arrow);
+  hd.appendChild(document.createTextNode(title));
+  const bd = document.createElement('div');
+  bd.className = 'subsec-bd';
+  if (!isOpen) bd.classList.add('hidden');
+  hd.addEventListener('click', () => {
+    arrow.classList.toggle('open');
+    bd.classList.toggle('hidden');
+    _secState.set(title, arrow.classList.contains('open'));
+  });
+  return { hd, bd };
+}
+
+// Single row: [checkbox] Label [──slider──] value
+// Returns { row, cb } — cb is the checkbox element for external sync.
+function makeBehRow(label, cbId, checkedGetter, checkedSetter, min, max, step, sliderGetter, sliderSetter) {
+  const fmt = v => v.toFixed(step < 0.01 ? 3 : step < 0.1 ? 2 : 1);
+  const row = document.createElement('div');
+  row.className = 'beh-row';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = cbId; cb.checked = checkedGetter();
+  const lbl = document.createElement('label');
+  lbl.htmlFor = cbId; lbl.className = 'beh-label'; lbl.textContent = label;
+  const range = document.createElement('input');
+  range.type = 'range'; range.min = min; range.max = max; range.step = step;
+  range.value = sliderGetter();
+  const num = document.createElement('input');
+  num.type = 'number'; num.className = 'param-val-input';
+  num.value = fmt(sliderGetter()); num.min = min; num.max = max; num.step = step;
+  cb.addEventListener('change', () => checkedSetter(cb.checked));
+  range.addEventListener('input', () => {
+    const v = parseFloat(range.value); sliderSetter(v); num.value = fmt(v);
+  });
+  num.addEventListener('change', () => {
+    const v = Math.min(max, Math.max(min, parseFloat(num.value) || 0));
+    range.value = v; sliderSetter(v); num.value = fmt(v);
+  });
+  row.appendChild(cb); row.appendChild(lbl); row.appendChild(range); row.appendChild(num);
+  return { row, cb };
 }
 
 function makeSlider(label, min, max, step, getter, setter) {
@@ -1034,6 +1300,24 @@ function makeColorRow(label, getter, setter) {
   });
   row.appendChild(lbl);
   row.appendChild(inp);
+  return row;
+}
+
+function makeCheckColorRow(label, checkedGetter, checkedSetter, colorGetter, colorSetter) {
+  const row = document.createElement('div');
+  row.className = 'check-color-row';
+  const id = 'ccr-' + label.toLowerCase().replace(/\s+/g, '-');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = id; cb.checked = checkedGetter();
+  cb.addEventListener('change', () => checkedSetter(cb.checked));
+  const lbl = document.createElement('label');
+  lbl.htmlFor = id; lbl.textContent = label;
+  const picker = document.createElement('input');
+  picker.type = 'color'; picker.value = colorGetter();
+  picker.addEventListener('input', () => colorSetter(picker.value));
+  row.appendChild(cb);
+  row.appendChild(lbl);
+  row.appendChild(picker);
   return row;
 }
 
@@ -1118,10 +1402,103 @@ function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Save system ───────────────────────────────────────────────────────────────
-const FSA_SUPPORTED = typeof window.showSaveFilePicker === 'function';
-let lastSaveHandle = null;   // FileSystemFileHandle — remembers last save location
+// ── PNG export ────────────────────────────────────────────────────────────────
+async function printPNG() {
+  const dpi = await showDpiDialog(300);
+  if (!dpi) return;
 
+  const scale  = dpi / 96;          // CSS pixels are 96 dpi
+  const pw     = Math.round(_canvasW * scale);
+  const ph     = Math.round(_canvasH * scale);
+
+  const ec     = document.createElement('canvas');
+  ec.width     = pw;
+  ec.height    = ph;
+  const ectx   = ec.getContext('2d');
+  ectx.scale(scale, scale);
+
+  ectx.fillStyle = P.bg;
+  ectx.fillRect(0, 0, _canvasW, _canvasH);
+  if (currentCG) drawCG(currentCG, ectx);
+
+  ec.toBlob(blob => {
+    const url  = URL.createObjectURL(blob);
+    const name = currentCG
+      ? `${currentCG.char}-${currentCG.font.replace(/\s+/g, '-')}-${dpi}dpi`
+      : `abecedarium-${dpi}dpi`;
+    const a = Object.assign(document.createElement('a'), { href: url, download: `${name}.png` });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setSaveStatus('ok', `Exported: ${name}.png`);
+  }, 'image/png');
+}
+
+function showDpiDialog(defaultDpi) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.id = 'save-modal-overlay';
+    const modal = document.createElement('div');
+    modal.id = 'save-modal';
+
+    const label = document.createElement('label');
+    label.textContent = 'Export resolution (DPI):';
+
+    const input = document.createElement('input');
+    input.type = 'number'; input.value = defaultDpi;
+    input.min = '72'; input.max = '1200'; input.step = '1';
+    input.style.cssText = 'width:100%;box-sizing:border-box;background:#0d0d0d;border:1px solid #333;color:#ddd;font-size:13px;padding:5px 8px;';
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirm();
+      if (e.key === 'Escape') cancel();
+      e.stopPropagation();
+    });
+
+    const btns = document.createElement('div');
+    btns.className = 'modal-btns';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'cancel'; cancelBtn.textContent = 'Cancel';
+    const exportBtn = document.createElement('button');
+    exportBtn.textContent = 'Export';
+    btns.append(cancelBtn, exportBtn);
+    modal.append(label, input, btns);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { input.select(); input.focus(); });
+
+    function confirm() {
+      const v = parseInt(input.value, 10);
+      cleanup();
+      resolve((v > 0 && v <= 1200) ? v : null);
+    }
+    function cancel() { cleanup(); resolve(null); }
+    cancelBtn.addEventListener('click', cancel);
+    exportBtn.addEventListener('click', confirm);
+    overlay.addEventListener('click', e => { if (e.target === overlay) cancel(); });
+    function cleanup() { document.body.removeChild(overlay); }
+  });
+}
+
+// ── Save system ───────────────────────────────────────────────────────────────
+// Save → JSON blob download (OS save dialog when browser "Ask where to save" is on).
+// Load → <input type="file"> OS open dialog.
+
+function _makeFileData(name) {
+  return {
+    name,
+    char:      currentCG.char,
+    timestamp: new Date().toISOString(),
+    settings:  { ...P },
+    behaviour: {
+      danceActive,
+      danceParams: currentCG._danceParams ? { ...currentCG._danceParams } : null,
+    },
+    baseCmds: currentCG._baseCmds ? currentCG._baseCmds.map(c => ({ ...c })) : null,
+  };
+}
+
+// ── Naming dialog (save) ──────────────────────────────────────────────────────
 function showNamingDialog(defaultName) {
   return new Promise(resolve => {
     const overlay = document.createElement('div');
@@ -1130,124 +1507,157 @@ function showNamingDialog(defaultName) {
     modal.id = 'save-modal';
 
     const label = document.createElement('label');
-    label.textContent = 'Name this state:';
+    label.textContent = 'Save as:';
 
     const input = document.createElement('input');
-    input.type = 'text';
-    input.value = defaultName;
+    input.type = 'text'; input.value = defaultName;
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter') confirm();
       if (e.key === 'Escape') cancel();
-      e.stopPropagation();  // prevent canvas key handler
+      e.stopPropagation();
     });
 
     const btns = document.createElement('div');
     btns.className = 'modal-btns';
-
     const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'cancel';
-    cancelBtn.textContent = 'Cancel';
-
+    cancelBtn.className = 'cancel'; cancelBtn.textContent = 'Cancel';
     const saveBtn = document.createElement('button');
     saveBtn.textContent = 'Save';
-
     btns.append(cancelBtn, saveBtn);
     modal.append(label, input, btns);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
-
-    // Focus after paint
     requestAnimationFrame(() => { input.select(); input.focus(); });
 
-    function confirm() {
-      const name = input.value.trim();
-      cleanup();
-      resolve(name || null);
-    }
-    function cancel() { cleanup(); resolve(null); }
-
+    function confirm() { const v = input.value.trim(); cleanup(); resolve(v || null); }
+    function cancel()  { cleanup(); resolve(null); }
     cancelBtn.addEventListener('click', cancel);
     saveBtn.addEventListener('click', confirm);
     overlay.addEventListener('click', e => { if (e.target === overlay) cancel(); });
-
     function cleanup() { document.body.removeChild(overlay); }
   });
 }
 
-async function saveStateToFile() {
-  if (!currentCG) return;
-  const defaultName = `${currentCG.char}-${currentCG.font.replace(/\s+/g,'-')}`;
-  const name = await showNamingDialog(defaultName);
-  if (!name) return;
 
-  const data = {
-    name,
-    char:      currentCG.char,
-    timestamp: new Date().toISOString(),
-    settings:  { ...P },
-    baseCmds:  currentCG._baseCmds ? currentCG._baseCmds.map(c => ({ ...c })) : null,
-  };
-  const json = JSON.stringify(data, null, 2);
-
-  if (FSA_SUPPORTED) {
-    try {
-      const opts = {
-        suggestedName: name.replace(/[^a-z0-9_-]/gi, '_') + '.json',
-        types: [{ description: 'Abecedarium State', accept: { 'application/json': ['.json'] } }],
-      };
-      if (lastSaveHandle) opts.startIn = lastSaveHandle;
-      const fh = await window.showSaveFilePicker(opts);
-      lastSaveHandle = fh;
-      const w = await fh.createWritable();
-      await w.write(json);
-      await w.close();
-    } catch (e) {
-      if (e.name !== 'AbortError') console.error('Save failed:', e);
-    }
+// ── Video recording ───────────────────────────────────────────────────────────
+function toggleRecording() {
+  if (_mediaRecorder && _mediaRecorder.state !== 'inactive') {
+    stopRecording();
   } else {
-    // Fallback: blob download
-    const blob = new Blob([json], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'),
-                   { href: url, download: name.replace(/[^a-z0-9_-]/gi, '_') + '.json' });
-    a.click();
-    URL.revokeObjectURL(url);
+    startRecording();
   }
 }
 
-async function openStateFromFile() {
-  if (FSA_SUPPORTED) {
-    try {
-      const opts = {
-        types: [{ description: 'Abecedarium State', accept: { 'application/json': ['.json'] } }],
-        multiple: false,
-      };
-      if (lastSaveHandle) opts.startIn = lastSaveHandle;
-      const [fh] = await window.showOpenFilePicker(opts);
-      lastSaveHandle = fh;
-      const file = await fh.getFile();
-      const text = await file.text();
-      loadStateFromData(JSON.parse(text));
-    } catch (e) {
-      if (e.name !== 'AbortError') console.error('Open failed:', e);
-    }
-  } else {
-    // Fallback: hidden file input
-    const input = Object.assign(document.createElement('input'),
-                    { type: 'file', accept: '.json' });
-    input.addEventListener('change', async () => {
-      if (!input.files[0]) return;
-      const text = await input.files[0].text();
-      loadStateFromData(JSON.parse(text));
-    });
-    input.click();
+function startRecording() {
+  const canvas = document.getElementById('c');
+  const fps    = 30;
+  const mimeType = [
+    'video/mp4;codecs=avc1', 'video/mp4',
+    'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm',
+  ].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+
+  _recChunks = [];
+  const stream = canvas.captureStream(fps);
+  _mediaRecorder = new MediaRecorder(stream, { mimeType });
+  _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _recChunks.push(e.data); };
+  _mediaRecorder.onstop = _onRecordingStopped;
+  _mediaRecorder.start(100);
+
+  _recStartTime   = Date.now();
+  _recTimerHandle = setInterval(_updateRecTimer, 500);
+  _updateRecBtn(true);
+}
+
+function _updateRecTimer() {
+  const secs = Math.floor((Date.now() - _recStartTime) / 1000);
+  const mm   = String(Math.floor(secs / 60)).padStart(2, '0');
+  const ss   = String(secs % 60).padStart(2, '0');
+  setSaveStatus('rec', `● ${mm}:${ss}`);
+}
+
+function stopRecording() {
+  if (!_mediaRecorder || _mediaRecorder.state === 'inactive') return;
+  clearInterval(_recTimerHandle);
+  _mediaRecorder.stop();
+}
+
+function _onRecordingStopped() {
+  _updateRecBtn(false);
+
+  const mimeType = _mediaRecorder.mimeType;
+  const ext      = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+  const blob     = new Blob(_recChunks, { type: mimeType });
+  _recChunks     = [];
+
+  const slug = currentCG
+    ? `${currentCG.char}-${currentCG.font.replace(/\s+/g, '-')}`
+    : 'abecedarium';
+  const name = `${slug}-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}`;
+
+  const url = URL.createObjectURL(blob);
+  const a   = Object.assign(document.createElement('a'), {
+    href: url, download: `${name}.${ext}`,
+  });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setSaveStatus('ok', `Video saved: ${name}.${ext}`);
+}
+
+function _updateRecBtn(recording) {
+  if (!_recBtn) return;
+  _recBtn.textContent   = recording ? 'Stop Record' : 'Record';
+  _recBtn.style.color        = recording ? '#f77' : '';
+  _recBtn.style.borderColor  = recording ? '#602020' : '';
+}
+
+// ── Save / Load ───────────────────────────────────────────────────────────────
+async function saveStateToFile() {
+  if (!currentCG) { setSaveStatus('err', 'No glyph — type a letter first'); return; }
+  const name = `${currentCG.char}-${currentCG.font.replace(/\s+/g, '-')}`;
+
+  try {
+    const json = JSON.stringify(_makeFileData(name), null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `${name}.abcd.json` });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setSaveStatus('ok', `Saved: ${name}.abcd.json`);
+  } catch (e) {
+    setSaveStatus('err', `Save failed: ${e.message}`);
   }
+}
+
+function openStateFromFile() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,.abcd.json' });
+  input.addEventListener('change', async () => {
+    if (!input.files[0]) return;
+    try {
+      loadStateFromData(JSON.parse(await input.files[0].text()));
+      setSaveStatus('ok', `Loaded: ${input.files[0].name}`);
+    } catch (e) {
+      setSaveStatus('err', `Load failed: ${e.message}`);
+    }
+  });
+  input.click();
 }
 
 function loadStateFromData(data) {
   Object.assign(P, data.settings);
+  // Restore behaviour state
+  if (data.behaviour) {
+    danceActive = !!data.behaviour.danceActive;
+  }
   rebuildPanel();
   spawnCG(data.char);
+  // Restore dance params over whatever spawnCG attached
+  if (data.behaviour?.danceParams && currentCG?._danceParams) {
+    Object.assign(currentCG._danceParams, data.behaviour.danceParams);
+  }
   if (data.baseCmds && currentCG) {
     currentCG._baseCmds     = data.baseCmds.map(c => ({ ...c }));
     currentCG._displayCmds  = data.baseCmds.map(c => ({ ...c }));
@@ -1261,6 +1671,55 @@ function rebuildPanel() {
   const panel = document.getElementById('panel');
   while (panel.children.length > 1) panel.removeChild(panel.lastChild);
   buildUI();
+}
+
+// ── Alphabet auto-run logic ───────────────────────────────────────────────────
+function startAutoRun() {
+  _autoRunning = true;
+  _autoIndex   = 0;
+  _autoStep();
+  _updateAutoBtn();
+}
+
+function stopAutoRun() {
+  _autoRunning = false;
+  clearTimeout(_autoTimer);
+  _autoTimer = null;
+  _updateAutoBtn();
+}
+
+function _autoStep() {
+  if (!_autoRunning) return;
+  if (_autoIndex >= AUTO_ALPHABET.length) { stopAutoRun(); return; }
+
+  const prevX        = currentCG ? currentCG.homeX : null;
+  const prevY        = currentCG ? currentCG.homeY : null;
+  const savedDrag    = bodyDrag;   // preserve mid-drag across glyph switch
+
+  const base = AUTO_ALPHABET[_autoIndex];
+  const char = _autoUppercase ? base : base.toLowerCase();
+  danceActive = true;
+  if (_danceCb) _danceCb.checked = true;
+  spawnCG(char);   // clears bodyDrag — we restore it below
+
+  if (prevX !== null) {
+    currentCG.x = currentCG.homeX = prevX;
+    currentCG.y = currentCG.homeY = prevY;
+  }
+  if (savedDrag) bodyDrag = savedDrag;  // hand the active drag to the new glyph
+
+  setSaveStatus('ok', `${char}  (${_autoIndex + 1} / ${AUTO_ALPHABET.length})`);
+  _autoTimer = setTimeout(() => {
+    _autoIndex++;
+    _autoStep();
+  }, _autoDwell * 1000);
+}
+
+function _updateAutoBtn() {
+  if (!_autoRunBtn) return;
+  _autoRunBtn.textContent  = _autoRunning ? 'Stop abcde…' : 'abcde…';
+  _autoRunBtn.style.color       = _autoRunning ? '#f77' : '';
+  _autoRunBtn.style.borderColor = _autoRunning ? '#602020' : '';
 }
 
 // ── Build panel UI ────────────────────────────────────────────────────────────
@@ -1277,6 +1736,18 @@ function buildUI() {
     () => P.size,
     v  => { P.size = v; }
   ));
+  glyphSec.bd.appendChild(makeCheckColorRow('Fill',
+    () => P.fillOn,    v => { P.fillOn = v; },
+    () => P.fillColor, v => { P.fillColor = v; if (currentCG) currentCG.material.fill = v; }
+  ));
+  glyphSec.bd.appendChild(makeCheckColorRow('Stroke',
+    () => P.strokeOn,    v => { P.strokeOn = v; },
+    () => P.strokeColor, v => { P.strokeColor = v; }
+  ));
+  glyphSec.bd.appendChild(makeSlider('Stroke width', 0.5, 6, 0.5,
+    () => P.strokeWidth, v => { P.strokeWidth = v; }
+  ));
+  glyphSec.bd.appendChild(makeColorRow('Background', () => P.bg, v => { P.bg = v; }));
   panel.appendChild(glyphSec.hd);
   panel.appendChild(glyphSec.bd);
 
@@ -1293,70 +1764,88 @@ function buildUI() {
   renderSec.bd.appendChild(makeSingleToggle('Handles', 'Handles',
     () => P.showHandles, v => { P.showHandles = v; }
   ));
-  renderSec.bd.appendChild(makeSlider('Gaussian', 0, 50, 0.5,
-    () => P.gaussAmt,
-    v  => { P.gaussAmt = v; }
+
+  // ── Render → Independent ──
+  const indSub = makeSubSection('Independent');
+  indSub.bd.appendChild(makeSlider('Gaussian', 0, 50, 0.5,
+    () => P.gaussAmt, v => { P.gaussAmt = v; }
   ));
-  renderSec.bd.appendChild(makeSlider('Poisson', 0, 50, 0.5,
-    () => P.poissonAmt,
-    v  => { P.poissonAmt = v; }
+  indSub.bd.appendChild(makeSlider('Poisson', 0, 50, 0.5,
+    () => P.poissonAmt, v => { P.poissonAmt = v; }
   ));
-  renderSec.bd.appendChild(makeSlider('Smooth', 0, 0.99, 0.01,
-    () => P.noiseSmooth,
-    v  => { P.noiseSmooth = v; }
+  indSub.bd.appendChild(makeSlider('Smooth', 0, 0.99, 0.01,
+    () => P.noiseSmooth, v => { P.noiseSmooth = v; }
   ));
-  renderSec.bd.appendChild(makeSlider('Period (s)', 0, 3, 0.05,
-    () => P.noisePeriod,
-    v  => { P.noisePeriod = v; }
+  indSub.bd.appendChild(makeSlider('Period (s)', 0, 3, 0.05,
+    () => P.noisePeriod, v => { P.noisePeriod = v; }
   ));
+  renderSec.bd.appendChild(indSub.hd);
+  renderSec.bd.appendChild(indSub.bd);
+
+  // ── Render → Spatially Coherent ──
+  const cohSub = makeSubSection('Spatially Coherent');
+  cohSub.bd.appendChild(makeSlider('Amount', 0, 50, 0.5,
+    () => P.perlinAmt, v => { P.perlinAmt = v; }
+  ));
+  cohSub.bd.appendChild(makeSlider('Frequency', 0.001, 0.05, 0.001,
+    () => P.perlinFreq, v => { P.perlinFreq = v; }
+  ));
+  cohSub.bd.appendChild(makeSlider('Speed', 0, 2, 0.01,
+    () => P.perlinSpeed, v => { P.perlinSpeed = v; }
+  ));
+  renderSec.bd.appendChild(cohSub.hd);
+  renderSec.bd.appendChild(cohSub.bd);
+
+  // ── Render → Physically Motivated (stub) ──
+  const physSub = makeSubSection('Physically Motivated', false);
+  const physStub = document.createElement('div');
+  physStub.className = 'subsec-stub';
+  physStub.textContent = 'Coming soon: springs, coupled oscillators';
+  physSub.bd.appendChild(physStub);
+  renderSec.bd.appendChild(physSub.hd);
+  renderSec.bd.appendChild(physSub.bd);
+
+  // ── Render → Structural (stub) ──
+  const strucSub = makeSubSection('Structural', false);
+  const strucStub = document.createElement('div');
+  strucStub.className = 'subsec-stub';
+  strucStub.textContent = 'Coming soon: wave propagation, breathing';
+  strucSub.bd.appendChild(strucStub);
+  renderSec.bd.appendChild(strucSub.hd);
+  renderSec.bd.appendChild(strucSub.bd);
+
   panel.appendChild(renderSec.hd);
   panel.appendChild(renderSec.bd);
 
-  // ── Colour ──
-  const colSec = makeSection('Colour');
-  colSec.bd.appendChild(makeSingleToggle('Fill', 'Fill',
-    () => P.fillOn, v => { P.fillOn = v; }
-  ));
-  colSec.bd.appendChild(makeColorRow('Fill color',
-    () => P.fillColor, v => { P.fillColor = v; if (currentCG) currentCG.material.fill = v; }
-  ));
-  colSec.bd.appendChild(makeSingleToggle('Stroke', 'Stroke',
-    () => P.strokeOn, v => { P.strokeOn = v; }
-  ));
-  colSec.bd.appendChild(makeColorRow('Stroke color',
-    () => P.strokeColor, v => { P.strokeColor = v; }
-  ));
-  colSec.bd.appendChild(makeSlider('Stroke width', 0.5, 6, 0.5,
-    () => P.strokeWidth, v => { P.strokeWidth = v; }
-  ));
-  colSec.bd.appendChild(makeColorRow('Background', () => P.bg, v => { P.bg = v; }));
-  panel.appendChild(colSec.hd);
-  panel.appendChild(colSec.bd);
+  // ── Behaviour ──
+  const behSec = makeSection('Behaviour');
 
-  // ── Save ──
-  const saveSec = makeSection('Save');
-  saveSec.bd.appendChild(makeActionBtn('Save State', saveStateToFile));
-  saveSec.bd.appendChild(makeActionBtn('Open State', openStateFromFile));
-  panel.appendChild(saveSec.hd);
-  panel.appendChild(saveSec.bd);
-
-  // ── Dance ──
-  const danceSec = makeSection('Dance');
-  _danceBtn = makeActionBtn(danceActive ? 'Dance: On' : 'Dance: Off', () => {
-    danceActive = !danceActive;
-    _danceBtn.textContent   = danceActive ? 'Dance: On' : 'Dance: Off';
-    _danceBtn.style.color       = danceActive ? '#7af' : '';
-    _danceBtn.style.borderColor = danceActive ? '#2a4060' : '';
+  const danceSub = makeSubSection('Dance');
+  // Row 1: checkbox toggle
+  const danceToggleRow = document.createElement('div');
+  danceToggleRow.className = 'check-color-row';
+  _danceCb = document.createElement('input');
+  _danceCb.type = 'checkbox'; _danceCb.id = 'cb-dance'; _danceCb.checked = danceActive;
+  _danceCb.addEventListener('change', () => {
+    danceActive = _danceCb.checked;
     if (danceActive) { if (currentCG) attachDance(currentCG); }
     else             { if (currentCG) detachDance(currentCG); }
   });
-  if (danceActive) {
-    _danceBtn.style.color       = '#7af';
-    _danceBtn.style.borderColor = '#2a4060';
-  }
-  danceSec.bd.appendChild(_danceBtn);
-  panel.appendChild(danceSec.hd);
-  panel.appendChild(danceSec.bd);
+  const danceLbl = document.createElement('label');
+  danceLbl.htmlFor = 'cb-dance'; danceLbl.textContent = 'Dance';
+  danceToggleRow.appendChild(_danceCb);
+  danceToggleRow.appendChild(danceLbl);
+  danceSub.bd.appendChild(danceToggleRow);
+  // Row 2: spin amt slider
+  danceSub.bd.appendChild(makeSlider('Spin amt', 0, 0.3, 0.005,
+    () => currentCG?._danceParams?.spinAmt ?? 0,
+    v  => { if (currentCG?._danceParams) currentCG._danceParams.spinAmt = v; }
+  ));
+  behSec.bd.appendChild(danceSub.hd);
+  behSec.bd.appendChild(danceSub.bd);
+
+  panel.appendChild(behSec.hd);
+  panel.appendChild(behSec.bd);
 
   // ── Actions ──
   const actSec = makeSection('Actions');
@@ -1369,8 +1858,82 @@ function buildUI() {
     freezeBtn.style.borderColor = P.frozen ? '#2a4060' : '';
   });
   actSec.bd.appendChild(freezeBtn);
+
+  _autoRunBtn = makeActionBtn(
+    _autoRunning ? 'Stop abcde…' : 'abcde…',
+    () => { _autoRunning ? stopAutoRun() : startAutoRun(); }
+  );
+  if (_autoRunning) {
+    _autoRunBtn.style.color       = '#f77';
+    _autoRunBtn.style.borderColor = '#602020';
+  }
+  actSec.bd.appendChild(_autoRunBtn);
+
+  // Dwell number entry + case toggle on one row
+  const autoRow = document.createElement('div');
+  autoRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0';
+
+  const dwellLabel = document.createElement('span');
+  dwellLabel.textContent = 'Dwell (s)';
+  dwellLabel.style.cssText = 'font-size:10px;color:#888;flex:1';
+
+  const dwellInput = document.createElement('input');
+  dwellInput.type  = 'number';
+  dwellInput.value = _autoDwell;
+  dwellInput.min   = '1'; dwellInput.max = '60'; dwellInput.step = '1';
+  dwellInput.className = 'param-val-input';
+  dwellInput.style.width = '42px';
+  dwellInput.addEventListener('change', () => {
+    const v = parseFloat(dwellInput.value);
+    if (v >= 1) _autoDwell = v;
+  });
+
+  const caseBtn = document.createElement('button');
+  caseBtn.className   = 'tog-btn' + (_autoUppercase ? ' active' : '');
+  caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
+  caseBtn.style.cssText = 'flex:0 0 auto;padding:3px 7px;font-size:10px;text-transform:none';
+  caseBtn.addEventListener('click', () => {
+    _autoUppercase      = !_autoUppercase;
+    caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
+    caseBtn.classList.toggle('active', _autoUppercase);
+  });
+
+  autoRow.append(dwellLabel, dwellInput, caseBtn);
+  actSec.bd.appendChild(autoRow);
+
   panel.appendChild(actSec.hd);
   panel.appendChild(actSec.bd);
+
+  // ── File (bottom) ──
+  const fileSec = makeSection('File', false);
+  const fileRow = document.createElement('div');
+  fileRow.style.cssText = 'display:flex;gap:4px';
+  fileRow.appendChild(makeActionBtn('Save', saveStateToFile));
+  fileRow.appendChild(makeActionBtn('Load', openStateFromFile));
+  fileRow.appendChild(makeActionBtn('Print', printPNG));
+  fileRow.querySelectorAll('button').forEach(b => b.style.flex = '1');
+  fileSec.bd.appendChild(fileRow);
+
+  // Video record row
+  const recRow = document.createElement('div');
+  recRow.style.cssText = 'display:flex;gap:4px;margin-top:4px;align-items:center';
+  _recBtn = makeActionBtn('Record', toggleRecording);
+  _recBtn.style.flex = '1';
+  recRow.appendChild(_recBtn);
+
+  const cursorCb = document.createElement('input');
+  cursorCb.type = 'checkbox'; cursorCb.checked = _recCaptureCursor;
+  cursorCb.style.cssText = 'cursor:pointer;accent-color:#7af;flex-shrink:0';
+  cursorCb.addEventListener('change', () => { _recCaptureCursor = cursorCb.checked; });
+  const cursorLbl = document.createElement('label');
+  cursorLbl.textContent = 'cursor';
+  cursorLbl.style.cssText = 'font-size:10px;color:#888;cursor:pointer';
+  cursorLbl.addEventListener('click', () => { cursorCb.checked = !cursorCb.checked; _recCaptureCursor = cursorCb.checked; });
+  recRow.append(cursorCb, cursorLbl);
+
+  fileSec.bd.appendChild(recRow);
+  panel.appendChild(fileSec.hd);
+  panel.appendChild(fileSec.bd);
 
   // ── Char display + font status ──
   const disp = document.createElement('div');
@@ -1381,6 +1944,10 @@ function buildUI() {
   const status = document.createElement('div');
   status.id = 'font-status';
   panel.appendChild(status);
+
+  const saveStatus = document.createElement('div');
+  saveStatus.id = 'save-status';
+  panel.appendChild(saveStatus);
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -1392,7 +1959,7 @@ window.addEventListener('resize', () => {
   }
 });
 
-// URL params: ?char=A auto-spawns that letter at 400pt with Dance active
+/// URL params: ?char=A auto-spawns that letter at 400pt with Dance active
 const _urlChar = new URLSearchParams(window.location.search).get('char');
 if (_urlChar) { P.size = 400; danceActive = true; }
 
@@ -1403,12 +1970,7 @@ requestAnimationFrame(loop);
 
 if (_urlChar) {
   spawnCG(_urlChar[0]);
-  // Sync dance button appearance (danceActive already true, attachDance called in spawnCG)
-  if (_danceBtn) {
-    _danceBtn.textContent   = 'Dance: On';
-    _danceBtn.style.color       = '#7af';
-    _danceBtn.style.borderColor = '#2a4060';
-  }
+  if (_danceCb) _danceCb.checked = true;
 }
 </script>
 </body>

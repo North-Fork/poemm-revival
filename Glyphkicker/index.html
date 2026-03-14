@@ -9,15 +9,25 @@
 html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
              font-family: system-ui, -apple-system, sans-serif; }
 
+/* ── Toolbar ── */
+#toolbar {
+  position: fixed; left: 240px; top: 0; right: 0; height: 36px;
+  background: #111; border-bottom: 1px solid #222; z-index: 9;
+  display: flex; align-items: center; padding: 0 8px; gap: 0; overflow: hidden;
+}
+/* .tb-* styles injected by font-toolbar.js */
+
+/* ── Panel ── */
 #panel {
   position: fixed; left: 0; top: 0; width: 240px; height: 100%;
   overflow-y: auto; background: #111; color: #ccc;
   font-size: 12px; padding: 10px; z-index: 10;
   border-right: 1px solid #222;
 }
-#panel h1 {
-  font-size: 11px; color: #eee; margin-bottom: 14px;
-  font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+#panel-title {
+  font-size: 11px; color: #eee; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid #1e1e1e;
 }
 
 .param-row { margin: 8px 0; }
@@ -26,14 +36,14 @@ html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
 .param-name { font-size: 11px; color: #888; }
 .param-val  { font-size: 10px; color: #7af; font-family: monospace; }
 
-input[type=range] {
+#panel input[type=range] {
   width: 100%; cursor: pointer; accent-color: #7af;
   -webkit-appearance: none; appearance: none; background: transparent;
 }
-input[type=range]::-webkit-slider-runnable-track {
+#panel input[type=range]::-webkit-slider-runnable-track {
   height: 3px; background: #2a2a2a; border-radius: 2px;
 }
-input[type=range]::-webkit-slider-thumb {
+#panel input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
   background: #7af; margin-top: -4px;
 }
@@ -59,8 +69,8 @@ select {
 select:focus { outline: none; border-color: #336; }
 
 #canvas {
-  position: fixed; left: 240px; top: 0;
-  width: calc(100% - 240px); height: 100%;
+  position: fixed; left: 240px; top: 36px;
+  width: calc(100% - 240px); height: calc(100% - 36px);
   display: block; outline: none; cursor: text;
 }
 
@@ -96,33 +106,16 @@ select:focus { outline: none; border-color: #336; }
 }
 #smTriggerInput:focus { border-color: #336; }
 </style>
+<script src="font-toolbar.js"></script>
 </head>
 <body>
 
+<div id="toolbar"><!-- built by buildToolbar() --></div>
+
 <div id="panel">
-  <h1>Glyphkicker</h1>
+  <div id="panel-title">Glyphkicker</div>
 
   <div class="section-label">Type</div>
-
-  <div class="param-row">
-    <div class="param-header"><span class="param-name">Font</span></div>
-    <select id="sFontFamily">
-      <option value="Gill Sans">Gill Sans</option>
-      <option value="Georgia">Georgia</option>
-      <option value="Helvetica Neue">Helvetica Neue</option>
-      <option value="Palatino">Palatino</option>
-      <option value="Times New Roman">Times New Roman</option>
-      <option value="Courier New">Courier New</option>
-    </select>
-  </div>
-
-  <div class="param-row">
-    <div class="param-header">
-      <span class="param-name">Size</span>
-      <span class="param-val" id="vFontPt">48 pt</span>
-    </div>
-    <input type="range" id="sFontPt" min="12" max="200" step="1" value="48">
-  </div>
 
   <div class="param-row">
     <div class="param-header"><span class="param-name">Justify</span></div>
@@ -136,12 +129,14 @@ select:focus { outline: none; border-color: #336; }
   <div class="section-label">Colour</div>
 
   <div class="color-row">
-    <label>Text</label>
-    <input type="color" id="cText" value="#ffffff">
-  </div>
-  <div class="color-row">
     <label>Background</label>
     <input type="color" id="cBg" value="#000000">
+  </div>
+
+  <div class="section-label">Canvas</div>
+  <div class="color-row">
+    <label>Bounce edges</label>
+    <input type="checkbox" id="cBounceEdges">
   </div>
 
   <div class="section-label">Mode</div>
@@ -151,7 +146,6 @@ select:focus { outline: none; border-color: #336; }
   </div>
 
   <div class="section-label">Agent</div>
-  <button id="contagionBtn" class="jbtn" style="width:100%;margin-top:2px">Attach Contagion</button>
   <button id="predPreyBtn"  class="jbtn" style="width:100%;margin-top:4px">Attach Pred/Prey</button>
   <div style="font-size:9px;color:#444;margin-top:3px">selected = predators, rest = prey</div>
 
@@ -204,6 +198,7 @@ select:focus { outline: none; border-color: #336; }
         <option value="Orbit">Orbit</option>
         <option value="ParticleFlocking">Particle Flocking</option>
         <option value="ParticleOutside">Particle Outside</option>
+        <option value="Contagion">Contagion</option>
       </select>
     </div>
     <div class="section-label">Geometry</div>
@@ -227,17 +222,23 @@ select:focus { outline: none; border-color: #336; }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const PANEL_W     = 240;
+const TOPBAR_H    = 36;
 const MARGIN      = 40;
 const LINE_H_MULT = 1.45;
 const FIXED_DT    = 1 / 60;   // fixed physics timestep (seconds)
 
 // ── Params ─────────────────────────────────────────────────────────────────────
 const PARAMS = {
-  fontFamily: 'Gill Sans',
-  fontPt:     48,
-  color:      '#ffffff',
-  background: '#000000',
-  justify:    'left',
+  fontFamily:  'Gill Sans',
+  fontPt:      48,
+  fillOn:      true,
+  fillColor:   '#ffffff',
+  strokeOn:    false,
+  strokeColor: '#ffffff',
+  strokeWidth: 1,
+  background:  '#000000',
+  justify:     'left',
+  bounceEdges: false,
 };
 
 // ── Seeded RNG ─────────────────────────────────────────────────────────────────
@@ -270,7 +271,7 @@ const inputState = { x: 0, y: 0, down: false, onCanvas: false };
 
 function resizeCanvas() {
   W = window.innerWidth - PANEL_W;
-  H = window.innerHeight;
+  H = window.innerHeight - TOPBAR_H;
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
   canvas.width  = Math.round(W * dpr);
@@ -391,7 +392,7 @@ function makeGlyph(char, index, hx, hy, w) {
       damping: 0.92,         // velocity multiplier each physics step
     },
     material: {
-      fill:      null,       // null → inherit PARAMS.color
+      fill:      null,       // null → inherit PARAMS.fillColor
       opacity:   1,
       blendMode: 'source-over',
     },
@@ -916,6 +917,68 @@ const Orbit = {
 };
 
 // ── Behaviour registry ──────────────────────────────────────────────────────────
+// ── Contagion Behaviour ──────────────────────────────────────────────────────────
+// When assigned to a glyph, Contagion copies that glyph's other behaviours to any
+// glyph within `radius`. Infected glyphs also receive Contagion (transitive spread).
+// Injected behaviours + Contagion expire after `duration` seconds.
+// The original (user-assigned) instance has injectedAt: null and never expires.
+const Contagion = {
+  sym:      Symbol('Contagion'),
+  defaults: { radius: 0, duration: 3.0, injectedAt: null },
+
+  apply(g, dt, bCtx, params) {
+    const now = bCtx.time;
+
+    // Initialise per-instance state on first run.
+    let s = g._state.get(Contagion.sym);
+    if (!s) {
+      s = { injectedBehaviours: [], infected: new Set() };
+      g._state.set(Contagion.sym, s);
+    }
+
+    // Transitive instances expire after duration and clean themselves up.
+    if (params.injectedAt !== null && now - params.injectedAt > params.duration) {
+      for (const inst of s.injectedBehaviours) {
+        const idx = g.behaviours.indexOf(inst);
+        if (idx !== -1) g.behaviours.splice(idx, 1);
+      }
+      g._state.delete(Contagion.sym);
+      const selfIdx = g.behaviours.findIndex(b => b.type === Contagion && b.params === params);
+      if (selfIdx !== -1) g.behaviours.splice(selfIdx, 1);
+      return;
+    }
+
+    // Spread to nearby glyphs — each glyph is only ever infected once per source.
+    const cx = g.x + g.w * 0.5;
+    const cy = g.y - PARAMS.fontPt * 0.4;
+
+    for (const target of bCtx.glyphs) {
+      if (target === g || target.char === ' ' || target.char === '\n') continue;
+      if (s.infected.has(target.id)) continue;  // already infected by this instance
+
+      const tx = target.x + target.w * 0.5;
+      const ty = target.y - PARAMS.fontPt * 0.4;
+      if (Math.hypot(tx - cx, ty - cy) > params.radius) continue;
+
+      s.infected.add(target.id);  // mark before spreading so it's never repeated
+
+      // Copy all non-Contagion behaviours from host to target.
+      const spreading = g.behaviours
+        .filter(b => b.type !== Contagion)
+        .map(b => ({ type: b.type, params: { ...b.params } }));
+
+      // Add a new transitive Contagion instance for the target.
+      const newContagion = { type: Contagion, params: { ...params, injectedAt: now } };
+
+      for (const inst of spreading) target.behaviours.push(inst);
+      target.behaviours.push(newContagion);
+
+      // Seed target's state so its Contagion initialises correctly.
+      target._state.set(Contagion.sym, { injectedBehaviours: spreading, infected: new Set() });
+    }
+  },
+};
+
 const BEHAVIOUR_DEFS = [
   {
     key: 'Drift', type: Drift, label: 'Drift',
@@ -1000,6 +1063,13 @@ const BEHAVIOUR_DEFS = [
     key: 'ParticleOutside', type: ParticleOutside, label: 'Particle Outside',
     params: [
       { key: 'outside', label: 'Outside', min: 0, max: 100, step: 1, suffix: '%', default: 50 },
+    ],
+  },
+  {
+    key: 'Contagion', type: Contagion, label: 'Contagion',
+    params: [
+      { key: 'radius',   label: 'Radius',   min: 0,  max: 400, step: 10,  suffix: 'px', default: 0   },
+      { key: 'duration', label: 'Duration', min: 0.5, max: 20, step: 0.5, suffix: 's',  default: 3.0 },
     ],
   },
 ];
@@ -1196,9 +1266,11 @@ const AgentEngine = (() => {
       _outbox.length = 0;
     }
 
-    // Phase 5 — Tick behaviours (v1 unchanged)
+    // Phase 5 — Tick behaviours.
+    // Snapshot g.behaviours so behaviours injected this frame don't run until next frame.
     for (const g of glyphs) {
-      for (const inst of g.behaviours) {
+      const insts = g.behaviours.slice();
+      for (const inst of insts) {
         inst.type.apply(g, dt, bCtx, inst.params);
       }
     }
@@ -1226,55 +1298,6 @@ const AgentEngine = (() => {
 })();
 
 // ── Contagion State Machine — demo ──────────────────────────────────────────────
-// idle → receives 'excited' → excited
-// excited → onEnter: broadcasts 'excited' (80px radius), schedules 'calm-down' (3s)
-// excited → receives 'calm-down' → idle
-// In excited: Shake + Flicker auto-activated by SM behaviour injection.
-const contagionStates = {
-  idle: {
-    behaviours: [],
-    onEnter(g, bCtx)  {},
-    onExit(g, bCtx)   {},
-    onMessage(g, msg, bCtx) {
-      if (msg.type === 'excited') return 'excited';
-    },
-  },
-  excited: {
-    behaviours: [
-      { type: Shake,   params: { amplitude: 8, speed: 20 } },
-      { type: Flicker, params: { rate: 6, min: 0.1 } },
-    ],
-    onEnter(g, bCtx) {
-      if (!bCtx) return;   // guard: null bCtx during pre-frame init
-      bCtx.engine.broadcast(g, 80, 'excited', {});
-      bCtx.engine.schedule(g.id, 'calm-down', {}, 3.0, bCtx);
-    },
-    onExit(g, bCtx)   {},
-    onMessage(g, msg, bCtx) {
-      if (msg.type === 'calm-down') return 'idle';
-      // Ignore extra 'excited' while already excited
-    },
-  },
-};
-
-// Attach a fresh contagion SM to every printable glyph.
-function attachContagion(gs) {
-  for (const g of gs) {
-    if (g.char === ' ' || g.char === '\n') continue;
-    const sm = makeStateMachine(contagionStates, 'idle');
-    sm.tag = 'contagion';
-    g.stateMachine = sm;
-    sm.init(g, null);
-  }
-}
-
-// Detach contagion SM from every glyph (removes injected behaviours).
-function detachContagion(gs) {
-  for (const g of gs) {
-    if (g.stateMachine?.tag === 'contagion') g.stateMachine.detach(g);
-  }
-}
-
 // ── Predator / Prey State Machines ──────────────────────────────────────────────
 // Predator: chases the pointer (Attract), broadcasts its position to nearby glyphs
 //           as a 'hunt' message every tick while the pointer is on canvas.
@@ -1765,7 +1788,7 @@ function drawParticleGeometry(g) {
   const m = g.material;
   ctx.globalAlpha              = m.opacity;
   ctx.globalCompositeOperation = m.blendMode;
-  ctx.fillStyle                = m.fill || PARAMS.color;
+  ctx.fillStyle                = m.fill || PARAMS.fillColor;
 
   if (pp.cellPx <= 2) {
     // Solid render at tiny sizes — avoids grey fringe and perf crawl.
@@ -1914,6 +1937,16 @@ function stepDynamics(dt, bCtx) {
     d.vx        *= d.damping;
     d.vy        *= d.damping;
     d.angularVel *= d.damping;
+
+    // Canvas edge bounce — reflect velocity and clamp position
+    if (PARAMS.bounceEdges) {
+      const top = PARAMS.fontPt * 0.85;        // approx top of cap-height
+      const bot = H - PARAMS.fontPt * 0.15;    // approx bottom of descender line
+      if (g.x < 0)           { g.x = 0;           d.vx =  Math.abs(d.vx); }
+      if (g.x + g.w > W)     { g.x = W - g.w;     d.vx = -Math.abs(d.vx); }
+      if (g.y < top)         { g.y = top;          d.vy =  Math.abs(d.vy); }
+      if (g.y > bot)         { g.y = bot;          d.vy = -Math.abs(d.vy); }
+    }
 
     // Internal particle physics (if particle geometry active)
     if (g.geometry.type === 'particles' && g.geometry.data) {
@@ -2082,8 +2115,15 @@ function loop(ts) {
       }
       ctx.globalAlpha              = m.opacity;
       ctx.globalCompositeOperation = m.blendMode;
-      ctx.fillStyle                = m.fill || PARAMS.color;
-      ctx.fillText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      if (PARAMS.strokeOn) {
+        ctx.strokeStyle = PARAMS.strokeColor;
+        ctx.lineWidth   = PARAMS.strokeWidth;
+        ctx.strokeText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      }
+      if (PARAMS.fillOn) {
+        ctx.fillStyle = m.fill || PARAMS.fillColor;
+        ctx.fillText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      }
       ctx.restore();
     } else {
       const r = [g.x - 2, g.y - PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
@@ -2101,8 +2141,15 @@ function loop(ts) {
       }
       ctx.globalAlpha              = m.opacity;
       ctx.globalCompositeOperation = m.blendMode;
-      ctx.fillStyle                = m.fill || PARAMS.color;
-      ctx.fillText(g.char, g.x, g.y);
+      if (PARAMS.strokeOn) {
+        ctx.strokeStyle = PARAMS.strokeColor;
+        ctx.lineWidth   = PARAMS.strokeWidth;
+        ctx.strokeText(g.char, g.x, g.y);
+      }
+      if (PARAMS.fillOn) {
+        ctx.fillStyle = m.fill || PARAMS.fillColor;
+        ctx.fillText(g.char, g.x, g.y);
+      }
     }
   }
 
@@ -2112,7 +2159,7 @@ function loop(ts) {
   // Cursor (type mode only)
   if (editorMode === 'type' && document.activeElement === canvas && cursorOn) {
     const bl = cursorBaseline();
-    ctx.fillStyle = PARAMS.color;
+    ctx.fillStyle = PARAMS.fillColor;
     ctx.fillRect(bl.x, bl.y - PARAMS.fontPt * 0.85, 2, PARAMS.fontPt);
   }
 
@@ -2465,13 +2512,42 @@ canvas.addEventListener('mouseup', () => {
   canvas.style.cursor = editorMode === 'type' ? 'text' : 'default';
 });
 
-// ── Panel wiring ───────────────────────────────────────────────────────────────
-document.getElementById('sFontFamily').addEventListener('change', e => {
-  PARAMS.fontFamily = e.target.value;
-  layout();
-  rebuildParticleGeometries();
-});
+// ── Toolbar ─────────────────────────────────────────────────────────────────────
+const FONTS = [
+  'Gill Sans', 'Baskerville', 'Didot', 'Futura', 'Garamond',
+  'Georgia', 'Helvetica Neue', 'Optima', 'Palatino',
+  'Times New Roman', 'Courier New', 'American Typewriter',
+];
 
+// Adapter: font-toolbar.js expects P.font / P.size; Glyphkicker uses fontFamily / fontPt
+const _toolbarP = {
+  get font()         { return PARAMS.fontFamily; },
+  set font(v)        { PARAMS.fontFamily = v; },
+  get size()         { return PARAMS.fontPt; },
+  set size(v)        { PARAMS.fontPt = v; },
+  get fillOn()       { return PARAMS.fillOn; },
+  set fillOn(v)      { PARAMS.fillOn = v; },
+  get fillColor()    { return PARAMS.fillColor; },
+  set fillColor(v)   { PARAMS.fillColor = v; },
+  get strokeOn()     { return PARAMS.strokeOn; },
+  set strokeOn(v)    { PARAMS.strokeOn = v; },
+  get strokeColor()  { return PARAMS.strokeColor; },
+  set strokeColor(v) { PARAMS.strokeColor = v; },
+  get strokeWidth()  { return PARAMS.strokeWidth; },
+  set strokeWidth(v) { PARAMS.strokeWidth = v; },
+};
+
+function buildToolbar() {
+  FontToolbar.buildFontToolbar({
+    container:  document.getElementById('toolbar'),
+    P:          _toolbarP,
+    fonts:      FONTS,
+    ensureFont: () => {},   // system fonts — no async loading needed
+    onChange:   () => { layout(); rebuildParticleGeometries(); },
+  });
+}
+
+// ── Panel wiring ───────────────────────────────────────────────────────────────
 document.getElementById('justifyGroup').addEventListener('click', e => {
   const btn = e.target.closest('.jbtn');
   if (!btn) return;
@@ -2480,17 +2556,8 @@ document.getElementById('justifyGroup').addEventListener('click', e => {
   layout();
 });
 
-const sFontPt = document.getElementById('sFontPt');
-const vFontPt = document.getElementById('vFontPt');
-sFontPt.addEventListener('input', () => {
-  PARAMS.fontPt = parseInt(sFontPt.value);
-  vFontPt.textContent = PARAMS.fontPt + ' pt';
-  layout();
-  rebuildParticleGeometries();
-});
-
-document.getElementById('cText').addEventListener('input', e => { PARAMS.color      = e.target.value; });
-document.getElementById('cBg'  ).addEventListener('input', e => { PARAMS.background = e.target.value; });
+document.getElementById('cBg').addEventListener('input', e => { PARAMS.background = e.target.value; });
+document.getElementById('cBounceEdges').addEventListener('change', e => { PARAMS.bounceEdges = e.target.checked; });
 
 // ── Mode toggle ─────────────────────────────────────────────────────────────────
 document.getElementById('modeGroup').addEventListener('click', e => {
@@ -2506,19 +2573,6 @@ document.getElementById('bAdd').addEventListener('change', function() {
   this.value = '';
 });
 
-// ── Contagion toggle ─────────────────────────────────────────────────────────────
-document.getElementById('contagionBtn').addEventListener('click', function() {
-  const active = glyphs.some(g => g.stateMachine?.tag === 'contagion');
-  if (active) {
-    detachContagion(glyphs);
-    this.textContent = 'Attach Contagion';
-    this.classList.remove('active');
-  } else {
-    attachContagion(glyphs);
-    this.textContent = 'Detach Contagion';
-    this.classList.add('active');
-  }
-});
 
 // ── Predator / Prey toggle ────────────────────────────────────────────────────────
 document.getElementById('predPreyBtn').addEventListener('click', function() {
@@ -2563,6 +2617,7 @@ document.getElementById('smSendBtn').addEventListener('click', () => {
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────────
+buildToolbar();
 resizeCanvas();
 requestAnimationFrame(loop);
 canvas.focus();

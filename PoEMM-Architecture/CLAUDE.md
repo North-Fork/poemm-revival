@@ -21,7 +21,29 @@ Detailed reference notes are stored in the Claude Code memory directory:
 | JS behaviour experiments | `memory/behaviour-experiments.md` |
 
 Memory files live at:
-`/Users/jasonlocal/.claude/projects/-Users-jasonlocal-Documents-Coding-Experiments/memory/`
+`/Users/jasonlocal/.claude/projects/-Users-jasonlocal-Library-CloudStorage-Dropbox-Dev/memory/`
+
+## Shared font-toolbar.js
+
+`PoEMM/shared/font-toolbar.js` is the single source of truth for the font/size/fill/stroke toolbar used across PoEMM web projects. Currently used by Abecedarium and Glyphkicker.
+
+**Per-project setup** — symlink inside the project directory:
+```bash
+cd PoEMM/<Project>
+ln -s ../shared/font-toolbar.js font-toolbar.js
+```
+HTML loads it as: `<script src="font-toolbar.js"></script>`
+
+The symlink makes it work both via the dev server and via `file://` (opening index.html directly in a browser). Edit only `shared/font-toolbar.js` — the symlink means changes propagate everywhere instantly.
+
+**Making a self-contained portable file:**
+```bash
+# run from PoEMM/
+python3 shared/inline-toolbar.py <Project>/index.html
+# → writes <Project>/index-standalone.html with toolbar JS inlined
+```
+
+---
 
 ## PoEMM Sketch / Experiment Rules
 
@@ -138,4 +160,4 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 ## Context
 
 PoEMM = Poetry for Excitable [Mobile] Media. See MEMORY.md for full project overview.
-The source codebases (ObjC iOS + Java/Processing) are at `/Users/jasonlocal/Documents/Coding-Experiments/`.
+The source codebases (ObjC iOS + Java/Processing) are at `/Users/jasonlocal/Library/CloudStorage/Dropbox/Dev/`.

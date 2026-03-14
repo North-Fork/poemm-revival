@@ -15,7 +15,9 @@ cd Abecedarium
 python3 server.py 8080
 ```
 
-Open `http://localhost:8080` (or `http://macmighty.local:8080` from another machine on the network).
+Open `http://localhost:8080/Abecedarium/` (or `http://macmighty.local:8080/Abecedarium/` from another machine on the network).
+
+> **Note:** The server roots at `PoEMM/` (one level up from `Abecedarium/`) so that the shared `PoEMM/shared/` directory is accessible to all PoEMM projects.
 
 ---
 
@@ -27,7 +29,7 @@ Type any letter to spawn a ComplexGlyph. The control panel on the left lets you 
 - **Render** — text vs. vector mode; noise layers (Independent: Gaussian + Poisson; Spatially Coherent: Perlin)
 - **Colour** — fill, stroke, background
 - **Behaviour** — Dance (per-letter character animation: drift, spin, pulse, planted feet)
-- **Actions** — Clear, Freeze noise, alphabet auto-run
+- **Actions** — Clear, Freeze/Unfreeze (pauses the clock — behaviours stay attached), alphabet auto-run
 - **File** — Save / Load / Print (PNG) / Record video
 
 ### URL shortcut
@@ -69,8 +71,24 @@ In the **Actions** section:
 
 ## Architecture
 
-Single self-contained HTML file (`index.html`). No build step. One external dependency: [opentype.js](https://github.com/opentypejs/opentype.js) via CDN for bezier glyph paths.
+Single self-contained HTML file (`index.html`). No build step. External dependencies:
+- [opentype.js](https://github.com/opentypejs/opentype.js) via CDN — bezier glyph paths
+- `font-toolbar.js` — symlink to `PoEMM/shared/font-toolbar.js`; shared font/size/fill/stroke toolbar
 
 Two canvases stacked: `#c` (main, captured by video recording and PNG export) and `#ov` (overlay, `pointer-events:none`). Anchors and handles are drawn on `#ov` only.
 
-See `memory/abecedarium.md` (Claude Code memory) for full technical notes.
+### font-toolbar.js symlink
+
+`Abecedarium/font-toolbar.js` is a symlink → `../shared/font-toolbar.js`. This lets the toolbar load correctly both via the dev server and by opening `index.html` directly (`file://`). Edit only the shared file — changes are immediately reflected here.
+
+### Making a standalone file
+
+To produce a single portable HTML with the toolbar inlined (no symlink dependency):
+
+```bash
+# run from PoEMM/
+python3 shared/inline-toolbar.py Abecedarium/index.html
+# → writes Abecedarium/index-standalone.html
+```
+
+See Claude Code memory (`abecedarium.md`) for full technical notes.

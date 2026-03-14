@@ -111,6 +111,16 @@ input[type=range]::-webkit-slider-thumb {
 .beh-row input[type=range] { flex: 1; width: auto; }
 .beh-row .param-val-input { width: 36px; }
 
+/* Feature rows (Dance sub-features) */
+.feature-row { margin: 3px 0 3px 10px; }
+.feature-hd { display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 0; }
+.feature-hd input[type=checkbox] { cursor: pointer; accent-color: #7af; flex-shrink: 0; }
+.feature-hd .feature-arrow { font-size: 8px; color: #666; flex-shrink: 0; transition: transform 0.1s; }
+.feature-hd .feature-arrow.open { transform: rotate(90deg); }
+.feature-hd .feature-label { font-size: 10px; color: #888; }
+.feature-params { padding-left: 14px; }
+.feature-params.hidden { display: none; }
+
 /* Checkbox + color picker rows (Fill, Stroke) */
 .check-color-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
 .check-color-row input[type=checkbox] { cursor: pointer; accent-color: #7af; flex-shrink: 0; }
@@ -190,13 +200,23 @@ input[type=range]::-webkit-slider-thumb {
 .modal-btns button.cancel { background: none; color: #666; border-color: #222; }
 .modal-btns button:hover { background: #253545; color: #9cf; }
 
+/* Toolbar */
+#toolbar {
+  position: fixed; left: 240px; top: 0; right: 0; height: 36px;
+  background: #111; border-bottom: 1px solid #222; z-index: 9;
+  display: flex; align-items: center; padding: 0 8px; gap: 0; overflow: hidden;
+}
+/* .tb-* styles injected by font-toolbar.js */
+
 /* Canvas */
-canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: block; }
+canvas { position: fixed; left: 240px; top: 36px; touch-action: none; display: block; }
 /* Overlay canvas — anchors/handles only; pointer-events: none keeps clicks passing to #c */
 #ov { pointer-events: none; z-index: 1; }
 </style>
 </head>
 <body>
+
+<div id="toolbar"><!-- built by buildToolbar() --></div>
 
 <div id="panel">
   <div id="panel-title">Abecedarium</div>
@@ -208,6 +228,8 @@ canvas { position: fixed; left: 240px; top: 0; touch-action: none; display: bloc
 
 <!-- opentype.js for true bezier glyph paths + control points -->
 <script src="https://unpkg.com/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<!-- Shared font/size/fill/stroke toolbar -->
+<script src="font-toolbar.js"></script>
 <script>
 'use strict';
 
@@ -227,36 +249,39 @@ const P = {
   fillColor:   '#ffffff',
   strokeOn:    false,
   strokeColor: '#ffffff',
-  strokeWidth: 1.5,
+  strokeWidth: 1,
   bg:          '#000000',
-  renderMode:  'text',        // 'text' | 'vector'
-  gaussAmt:    0,             // Gaussian noise amplitude (canvas px)
-  poissonAmt:  0,             // Poisson noise λ (canvas px, layered on Gaussian)
-  noiseSmooth: 0,             // 0 = instant/choppy → 0.99 = very smooth/billowing
-  noisePeriod: 0,             // seconds between target resamples (0 = every physics tick)
-  perlinAmt:   0,             // Perlin noise amplitude (canvas px)
-  perlinFreq:  0.008,         // spatial frequency (controls tile density over glyph)
-  perlinSpeed: 0.15,          // animation speed (units/sec along time axis)
-  frozen:      false,         // pause noise evolution
-  showAnchors: true,          // draw on-curve anchor points
-  showHandles: true,          // draw off-curve control handles + lines
+  renderMode:  'vector',      // 'text' | 'vector'
+  frozen:      false,         // pause noise evolution (global preview toggle)
+  showAnchors: false,         // draw on-curve anchor points
+  showHandles: false,         // draw off-curve control handles + lines
 };
 
-// ── Dance configs (per-letter noise + body movement params) ──────────────────
+// ── Noise defaults ────────────────────────────────────────────────────────────
+// Param key names match the old P fields so updateNoiseState/applyNoiseState need no changes.
+const NOISE_DEFAULT = {
+  independent: { enabled: false, params: { gaussAmt: 5, poissonAmt: 0, noiseSmooth: 0.7, noisePeriod: 0 } },
+  perlin:      { enabled: false, params: { perlinAmt: 10, perlinFreq: 0.008, perlinSpeed: 0.15 } },
+};
+
+// ── Dance configs (per-letter body movement params) ───────────────────────────
+// Dance feature configs: each feature has { enabled, params }.
+// plantFeet.params.thresh: fraction of font size — baseline points within this Y-distance are noise-anchored.
 const DANCE_DEFAULT = {
-  gaussAmt: 5,  poissonAmt: 5,  noiseSmooth: 0.5,  noisePeriod: 1.0,
-  driftAmt: 10, driftSpeed: 0.3,
-  spinAmt:  0.05, spinSpeed: 0.2,
-  pulseAmt: 0.05, pulseSpeed: 0.3,
+  spin:      { enabled: true,  params: { amt: 0.05,  speed: 0.2  } },
+  pulse:     { enabled: true,  params: { amt: 0.05,  speed: 0.3  } },
+  drift:     { enabled: true,  params: { amt: 10,    speed: 0.3  } },
+  pinFeet: { enabled: false, params: {}                          },
+  plantFeet:   { enabled: false, params: { thresh: 0.05 }            },
 };
 
 const DANCE = {
   'A': {
-    gaussAmt: 2.4, poissonAmt: 6.6, noiseSmooth: 0.92, noisePeriod: 2.5,
-    driftAmt: 0,  driftSpeed: 0.08,
-    spinAmt:  0.025, spinSpeed: 0.07,
-    pulseAmt: 0.025, pulseSpeed: 0.14,
-    plantFeet: true,
+    spin:      { enabled: true,  params: { amt: 0.025, speed: 0.07  } },
+    pulse:     { enabled: true,  params: { amt: 0.025, speed: 0.14  } },
+    drift:     { enabled: false, params: { amt: 0,     speed: 0.08  } },
+    pinFeet: { enabled: true,  params: {}                           },
+    plantFeet:   { enabled: true,  params: { thresh: 0.05 }             },
   },
 };
 
@@ -390,7 +415,7 @@ const AgentEngine = (() => ({
     for (let i = 0; i < nc; i++) {
       const cg = cgs[i];
       const beh = cg.behaviours;
-      for (let j = 0; j < beh.length; j++) beh[j].type.apply(cg, dt, bCtx, beh[j].params);
+      for (let j = 0; j < beh.length; j++) beh[j].type.apply(cg, dt, bCtx, beh[j].features);
     }
     for (let i = 0; i < nc; i++) {
       const cg  = cgs[i];
@@ -413,29 +438,41 @@ const DanceBehavior = (() => {
   const sym = Symbol('dance');
   return {
     sym,
-    apply(cg, dt, bCtx) {
-      const dp = cg._danceParams;
-      if (!dp) return;
-      const t = bCtx.time;
+    apply(cg, dt, bCtx, features) {
+      if (!features) return;
+      const t  = bCtx.time;
       if (!cg._state.has(sym)) cg._state.set(sym, { baseScale: cg.scale });
       const st = cg._state.get(sym);
-      // Spin
-      cg.rotation = Math.sin(t * dp.spinSpeed * TAU) * dp.spinAmt;
+      const sp = features.spin;
+      const pu = features.pulse;
+      const dr = features.drift;
+      const pf = features.pinFeet;
+
+      // Spin amount (shared by rotation and shear modes)
+      const spinVal = sp.enabled ? Math.sin(t * sp.params.speed * TAU) * sp.params.amt : 0;
+
       // Scale pulse
-      cg.scale = st.baseScale * (1 + Math.sin(t * dp.pulseSpeed * TAU) * dp.pulseAmt);
-      // Body position
-      if (dp.plantFeet && cg._footY != null) {
+      cg.scale = pu.enabled
+        ? st.baseScale * (1 + Math.sin(t * pu.params.speed * TAU) * pu.params.amt)
+        : st.baseScale;
+
+      // Body position — pinFeet (shear-bend) takes priority over drift
+      if (pf.enabled && cg._footY != null) {
         // Shear-bend: foot row stays flat on the ground, stem bends above it.
         // cg.shear drives the canvas shear transform in drawCG.
         // cg.y is adjusted so the foot row stays at the same world Y under scale.
-        cg.shear    = Math.sin(t * dp.spinSpeed * TAU) * dp.spinAmt;
+        cg.shear    = spinVal;
         cg.rotation = 0;
         cg.x = cg.homeX;
         cg.y = cg.homeY + cg._footY * (1 - cg.scale);
-      } else if (dp.driftAmt > 0) {
-        // Drift — two incommensurate oscillators for organic 2-D wander
-        cg.x = cg.homeX + Math.sin(t * dp.driftSpeed * TAU) * dp.driftAmt;
-        cg.y = cg.homeY + Math.sin(t * dp.driftSpeed * TAU * 1.618 + 1.0) * dp.driftAmt * 0.7;
+      } else {
+        cg.shear    = 0;
+        cg.rotation = spinVal;
+        if (dr.enabled && dr.params.amt > 0) {
+          // Drift — two incommensurate oscillators for organic 2-D wander
+          cg.x = cg.homeX + Math.sin(t * dr.params.speed * TAU) * dr.params.amt;
+          cg.y = cg.homeY + Math.sin(t * dr.params.speed * TAU * 1.618 + 1.0) * dr.params.amt * 0.7;
+        }
       }
       // Zero dynamics so they don't fight body movement
       cg.dynamics.vx = 0;
@@ -445,17 +482,66 @@ const DanceBehavior = (() => {
   };
 })();
 
-let danceActive = false;
-let _danceCb   = null;   // dance checkbox ref — set in buildUI, synced on URL-param load
+// ── Noise behaviour ───────────────────────────────────────────────────────────
+const NoiseBehavior = {
+  sym: Symbol('noise'),
+  apply(cg, dt, bCtx, features) {
+    if (!features || P.frozen) return;
+    const ind = features.independent;
+    if (ind.enabled && (ind.params.gaussAmt > 0 || ind.params.poissonAmt > 0)) {
+      updateNoiseState(cg, dt, ind.params);
+    }
+    // Perlin is applied at render time (needs _renderTime) — nothing to do here
+  },
+};
+
+function getNoiseBeh(cg) {
+  return cg?.behaviours.find(b => b.type === NoiseBehavior) ?? null;
+}
+
+function attachNoise(cg) {
+  if (!cg) return;
+  if (!cg.behaviours.some(b => b.type === NoiseBehavior)) {
+    // Restore saved features if available, otherwise use defaults
+    const src = _savedNoiseFeatures ?? NOISE_DEFAULT;
+    const features = {};
+    for (const key of Object.keys(src))
+      features[key] = { enabled: src[key].enabled, params: { ...src[key].params } };
+    cg.behaviours.push({ type: NoiseBehavior, features });
+  }
+  // Note: callers are responsible for syncing the panel rows after features are fully set
+}
+
+function detachNoise(cg) {
+  if (!cg) return;
+  // Stash features so they survive re-enable
+  const beh = getNoiseBeh(cg);
+  if (beh) {
+    _savedNoiseFeatures = {};
+    for (const key of Object.keys(beh.features))
+      _savedNoiseFeatures[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
+  }
+  cg.behaviours = cg.behaviours.filter(b => b.type !== NoiseBehavior);
+}
+
+let danceActive          = false;
+let _danceCb             = null;   // dance checkbox ref — set in buildUI, synced on URL-param load
+let _syncDanceFeatureRows = () => {};  // set in buildUI; called after glyph spawns with dance active
+let noiseActive           = false;
+let _noiseCb              = null;      // noise checkbox ref — set in buildUI
+let _syncNoiseFeatureRows = null;      // set in buildUI; called after glyph spawns
+let _savedDanceFeatures   = null;      // persists across glyph spawns
+let _savedNoiseFeatures   = null;      // persists across glyph spawns
 
 // ── Alphabet auto-run ─────────────────────────────────────────────────────────
 const AUTO_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-let _autoRunning   = false;
-let _autoIndex     = 0;
-let _autoTimer     = null;
-let _autoDwell     = 5;      // seconds per letter
-let _autoUppercase = true;   // true = A-Z, false = a-z
-let _autoRunBtn    = null;   // button ref — set in buildUI
+let _autoRunning    = false;
+let _autoIndex      = 0;
+let _autoTimer      = null;
+let _autoDwell      = 1;      // seconds per letter
+let _autoUppercase  = true;   // true = A-Z, false = a-z
+let _autoRunBtn     = null;   // button ref — set in buildUI
+let _autoFeatures   = null;   // snapshot of dance features taken at run start; applied to every letter
 
 // ── Video recording state ─────────────────────────────────────────────────────
 let _mediaRecorder    = null;
@@ -468,17 +554,36 @@ let _recStartTime   = 0;
 let _recTimerHandle = null;
 let _recBtn         = null;  // button ref — set in buildUI
 
+// Returns the DanceBehavior entry from cg.behaviours, or null.
+function getDanceBeh(cg) {
+  return cg?.behaviours.find(b => b.type === DanceBehavior) ?? null;
+}
+
 function attachDance(cg) {
   if (!cg) return;
-  cg._danceParams = DANCE[cg.char.toUpperCase()] || DANCE_DEFAULT;
-  if (!cg.behaviours.some(b => b.type === DanceBehavior))
-    cg.behaviours.push({ type: DanceBehavior, params: {} });
+  if (!cg.behaviours.some(b => b.type === DanceBehavior)) {
+    // Restore saved features if available, otherwise use per-letter config or default
+    const src = _savedDanceFeatures ?? DANCE[cg.char.toUpperCase()] ?? DANCE_DEFAULT;
+    const features = {};
+    for (const key of Object.keys(src))
+      features[key] = { enabled: src[key].enabled, params: { ...src[key].params } };
+    cg.behaviours.push({ type: DanceBehavior, features });
+    if (features.plantFeet?.enabled)
+      _recomputeBaselineAnchored(cg, cg.size * features.plantFeet.params.thresh);
+  }
+  _syncDanceFeatureRows();
 }
 
 function detachDance(cg) {
   if (!cg) return;
+  // Stash features so they survive re-enable
+  const beh = getDanceBeh(cg);
+  if (beh) {
+    _savedDanceFeatures = {};
+    for (const key of Object.keys(beh.features))
+      _savedDanceFeatures[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
+  }
   const st = cg._state.get(DanceBehavior.sym);
-  cg._danceParams = null;
   cg._state.delete(DanceBehavior.sym);
   cg.behaviours = cg.behaviours.filter(b => b.type !== DanceBehavior);
   cg.rotation = 0;
@@ -497,7 +602,7 @@ const octx   = ov.getContext('2d');
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   _canvasW = window.innerWidth  - 240;
-  _canvasH = window.innerHeight;
+  _canvasH = window.innerHeight - 36;  // 36px toolbar at top
   canvas.width  = _canvasW * dpr;
   canvas.height = _canvasH * dpr;
   canvas.style.width  = _canvasW + 'px';
@@ -513,7 +618,8 @@ function resizeCanvas() {
 // ── Perlin gradient noise (Ken Perlin's improved noise, 3D) ──────────────────
 // Output range ≈ −1 … +1.  Use perlin3(bx*freq, by*freq, t*speed) for
 // spatially-coherent outline displacement that animates smoothly over time.
-let _renderTime = 0;   // updated each render frame; read by applyNoiseState
+let _renderTime  = 0;   // updated each render frame; read by applyNoiseState
+let _frozenTime  = 0;   // clock value at the moment Freeze was pressed
 
 const _PERM = (() => {
   const p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,
@@ -565,7 +671,7 @@ function gaussRand() {
 
 // Knuth algorithm; normal approximation for λ > 30 to avoid slow loops.
 // Returns a centered Poisson sample (mean 0, variance λ) for use as displacement.
-// Math.exp(-lambda) is cached since P.poissonAmt rarely changes.
+// Math.exp(-lambda) is cached since poissonAmt rarely changes between frames.
 let _poissonLambda = -1, _poissonL = 1;
 function poissonRand(lambda) {
   if (lambda <= 0) return 0;
@@ -597,11 +703,11 @@ function _noiseSlotCount(cmds) {
 
 function initNoiseState(cg) {
   const n      = _noiseSlotCount(cg._baseCmds);
-  const period = P.noisePeriod > 0 ? P.noisePeriod : 0;
+  // Period starts at 0 (noise default); re-staggered by updateNoiseState when period changes.
   cg._noiseSlots    = n;
-  cg._cachedPeriod  = period;   // track so we can re-stagger on period change
+  cg._cachedPeriod  = 0;
   cg._noiseState    = Array.from({ length: n }, () =>
-    ({ cx: 0, cy: 0, tx: 0, ty: 0, timer: Math.random() * period }));
+    ({ cx: 0, cy: 0, tx: 0, ty: 0, timer: 0 }));
 }
 
 function _sampleDisp(pp) {
@@ -610,9 +716,8 @@ function _sampleDisp(pp) {
 }
 
 // Called each fixed physics tick. Advances timers, resamples targets, lerps.
-// pp = noise params object (cg._danceParams when Dance is active, else global P)
+// pp = NoiseBehavior independent feature params { gaussAmt, poissonAmt, noiseSmooth, noisePeriod }
 function updateNoiseState(cg, dt, pp) {
-  if (!pp) pp = P;
   if (!cg._noiseState) initNoiseState(cg);
 
   const period = pp.noisePeriod > 0 ? pp.noisePeriod : 0;
@@ -627,7 +732,9 @@ function updateNoiseState(cg, dt, pp) {
     }
   }
 
-  const alpha = 1 - Math.min(pp.noiseSmooth, 0.9999);
+  const alpha  = 1 - Math.min(pp.noiseSmooth, 0.9999);
+  const pinFt  = !!getDanceBeh(cg)?.features.plantFeet?.enabled;
+  const ba     = cg._baselineAnchored;
   for (let i = 0; i < len; i++) {
     const s = ns[i];
     s.timer -= dt;
@@ -636,6 +743,8 @@ function updateNoiseState(cg, dt, pp) {
       s.ty    = _sampleDisp(pp);
       s.timer = period;
     }
+    // Suppress vertical noise for points pinned to the baseline.
+    if (pinFt && ba && ba[i]) s.ty = 0;
     s.cx += (s.tx - s.cx) * alpha;
     s.cy += (s.ty - s.cy) * alpha;
   }
@@ -644,44 +753,56 @@ function updateNoiseState(cg, dt, pp) {
 // Writes displaced coordinates into displayCmds in-place — no allocation.
 // noiseState may be null when only Perlin noise is active.
 // Perlin is sampled from base coordinates + _renderTime so it is spatially coherent.
-function applyNoiseState(baseCmds, noiseState, displayCmds) {
-  const perlinOn = P.perlinAmt > 0 && !P.frozen;
-  const pa = P.perlinAmt, pf = P.perlinFreq, ps = P.perlinSpeed, t = _renderTime;
+// baselineAnchored: optional boolean[] (same indexing as noiseState slots).
+// When provided, vertical displacement (Gaussian/Poisson + Perlin) is zeroed
+// for anchored slots so those path points stay on the baseline.
+function applyNoiseState(baseCmds, noiseState, displayCmds, baselineAnchored, perlinParams) {
+  const perlinOn = !!perlinParams;
+  const pa = perlinParams?.perlinAmt   ?? 0;
+  const pf = perlinParams?.perlinFreq  ?? 0.008;
+  const ps = perlinParams?.perlinSpeed ?? 0.15;
+  const t  = _renderTime;
   let i = 0;
   for (let j = 0; j < baseCmds.length; j++) {
     const src = baseCmds[j], dst = displayCmds[j];
     switch (src.type) {
       case 'M': case 'L': {
-        const gcx = noiseState ? noiseState[i].cx : 0;
-        const gcy = noiseState ? noiseState[i].cy : 0;
+        const gcx  = noiseState ? noiseState[i].cx : 0;
+        const gcy  = noiseState ? noiseState[i].cy : 0;
+        const anch = baselineAnchored && baselineAnchored[i];
         i++;
         const ppx = perlinOn ? perlin3(src.x * pf,        src.y * pf,        t * ps) * pa : 0;
-        const ppy = perlinOn ? perlin3(src.x * pf + 47.3, src.y * pf + 91.7, t * ps) * pa : 0;
+        const ppy = (perlinOn && !anch) ? perlin3(src.x * pf + 47.3, src.y * pf + 91.7, t * ps) * pa : 0;
         dst.x = src.x + gcx + ppx;  dst.y = src.y + gcy + ppy;
         break;
       }
       case 'C': {
-        const p1x = noiseState ? noiseState[i].cx : 0, p1y = noiseState ? noiseState[i].cy : 0; i++;
-        const p2x = noiseState ? noiseState[i].cx : 0, p2y = noiseState ? noiseState[i].cy : 0; i++;
-        const p3x = noiseState ? noiseState[i].cx : 0, p3y = noiseState ? noiseState[i].cy : 0; i++;
+        const p1x = noiseState ? noiseState[i].cx : 0, p1y = noiseState ? noiseState[i].cy : 0;
+        const a1  = baselineAnchored && baselineAnchored[i]; i++;
+        const p2x = noiseState ? noiseState[i].cx : 0, p2y = noiseState ? noiseState[i].cy : 0;
+        const a2  = baselineAnchored && baselineAnchored[i]; i++;
+        const p3x = noiseState ? noiseState[i].cx : 0, p3y = noiseState ? noiseState[i].cy : 0;
+        const a3  = baselineAnchored && baselineAnchored[i]; i++;
         const n1x = perlinOn ? perlin3(src.x1*pf,       src.y1*pf,       t*ps)*pa : 0;
-        const n1y = perlinOn ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
+        const n1y = (perlinOn && !a1) ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
         const n2x = perlinOn ? perlin3(src.x2*pf,       src.y2*pf,       t*ps)*pa : 0;
-        const n2y = perlinOn ? perlin3(src.x2*pf+47.3,  src.y2*pf+91.7,  t*ps)*pa : 0;
+        const n2y = (perlinOn && !a2) ? perlin3(src.x2*pf+47.3,  src.y2*pf+91.7,  t*ps)*pa : 0;
         const n3x = perlinOn ? perlin3(src.x *pf,       src.y *pf,       t*ps)*pa : 0;
-        const n3y = perlinOn ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
+        const n3y = (perlinOn && !a3) ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
         dst.x1 = src.x1 + p1x + n1x;  dst.y1 = src.y1 + p1y + n1y;
         dst.x2 = src.x2 + p2x + n2x;  dst.y2 = src.y2 + p2y + n2y;
         dst.x  = src.x  + p3x + n3x;  dst.y  = src.y  + p3y + n3y;
         break;
       }
       case 'Q': {
-        const q1x = noiseState ? noiseState[i].cx : 0, q1y = noiseState ? noiseState[i].cy : 0; i++;
-        const q2x = noiseState ? noiseState[i].cx : 0, q2y = noiseState ? noiseState[i].cy : 0; i++;
+        const q1x = noiseState ? noiseState[i].cx : 0, q1y = noiseState ? noiseState[i].cy : 0;
+        const a1  = baselineAnchored && baselineAnchored[i]; i++;
+        const q2x = noiseState ? noiseState[i].cx : 0, q2y = noiseState ? noiseState[i].cy : 0;
+        const a2  = baselineAnchored && baselineAnchored[i]; i++;
         const n1x = perlinOn ? perlin3(src.x1*pf,       src.y1*pf,       t*ps)*pa : 0;
-        const n1y = perlinOn ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
+        const n1y = (perlinOn && !a1) ? perlin3(src.x1*pf+47.3,  src.y1*pf+91.7,  t*ps)*pa : 0;
         const n2x = perlinOn ? perlin3(src.x *pf,       src.y *pf,       t*ps)*pa : 0;
-        const n2y = perlinOn ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
+        const n2y = (perlinOn && !a2) ? perlin3(src.x *pf+47.3,  src.y *pf+91.7,  t*ps)*pa : 0;
         dst.x1 = src.x1 + q1x + n1x;  dst.y1 = src.y1 + q1y + n1y;
         dst.x  = src.x  + q2x + n2x;  dst.y  = src.y  + q2y + n2y;
         break;
@@ -689,6 +810,30 @@ function applyNoiseState(baseCmds, noiseState, displayCmds) {
       // Z: no coordinates
     }
   }
+}
+
+// ── Baseline anchor map ───────────────────────────────────────────────────────
+// Recomputes cg._baselineAnchored from cg._baseCmds and the given pixel threshold.
+// thresh is in canvas pixels (= cg.size * plantFeetThresh fraction).
+// Called from initCGPath (default thresh) and from the panel slider on change.
+function _recomputeBaselineAnchored(cg, thresh) {
+  if (!cg._baseCmds || cg._footY == null) { cg._baselineAnchored = null; return; }
+  const fy = cg._footY;
+  const ba = [];
+  for (let j = 0; j < cg._baseCmds.length; j++) {
+    const cmd = cg._baseCmds[j];
+    if (cmd.type === 'M' || cmd.type === 'L') {
+      ba.push(Math.abs(cmd.y - fy) < thresh);
+    } else if (cmd.type === 'C') {
+      ba.push(Math.abs(cmd.y1 - fy) < thresh);
+      ba.push(Math.abs(cmd.y2 - fy) < thresh);
+      ba.push(Math.abs(cmd.y  - fy) < thresh);
+    } else if (cmd.type === 'Q') {
+      ba.push(Math.abs(cmd.y1 - fy) < thresh);
+      ba.push(Math.abs(cmd.y  - fy) < thresh);
+    }
+  }
+  cg._baselineAnchored = ba;
 }
 
 // ── Base path init (stores editable commands on CG) ─────────────────────────
@@ -707,7 +852,9 @@ function initCGPath(cg, otFont) {
   cg._noiseSlots   = null;   // cached slot count — set when noise state is inited
   cg._cachedPeriod = -1;     // force re-stagger on next init
   cg._fontStr      = `${cg.size}px "${cg.font}"`;  // cached ctx.font string
-  cg._footY        = baselineY;  // local Y of the glyph baseline (feet) — for plantFeet dance
+  cg._footY = baselineY;  // local Y of the glyph baseline (feet) — for pinFeet dance
+  // Initial anchored map using default threshold; recomputed in attachDance (uses dance param).
+  _recomputeBaselineAnchored(cg, cg.size * 0.05);
 }
 
 // ── Pointer → CG local coordinate transform ──────────────────────────────────
@@ -887,9 +1034,18 @@ function drawCG(cg, dc) {
     if (!cg._baseCmds) initCGPath(cg, otFont);
     const baseCmds = cg._baseCmds;
 
-    const noiseActive = P.gaussAmt > 0 || P.poissonAmt > 0 || P.perlinAmt > 0;
+    const nf           = getNoiseBeh(cg)?.features;
+    const indActive    = nf?.independent.enabled &&
+      (nf.independent.params.gaussAmt > 0 || nf.independent.params.poissonAmt > 0);
+    const perlinActive = nf?.perlin.enabled && nf.perlin.params.perlinAmt > 0 && !P.frozen;
+    const noiseActive  = indActive || perlinActive;
     if (noiseActive && cg._displayCmds) {
-      applyNoiseState(baseCmds, cg._noiseState, cg._displayCmds);
+      const pinFt = !!getDanceBeh(cg)?.features.plantFeet?.enabled;
+      applyNoiseState(
+        baseCmds, cg._noiseState, cg._displayCmds,
+        pinFt ? cg._baselineAnchored : null,
+        perlinActive ? nf.perlin.params : null
+      );
     }
     const cmds = (noiseActive && cg._displayCmds) ? cg._displayCmds : baseCmds;
 
@@ -972,9 +1128,22 @@ let drag     = null;   // { cmdIdx, role, lastLX, lastLY } — active control-po
 let bodyDrag = null;   // { lastMX, lastMY } — active glyph-body drag
 
 function canvasCX() { return (window.innerWidth  - 240) / 2; }
-function canvasCY() { return  window.innerHeight        / 2; }
+function canvasCY() { return (window.innerHeight - 36)   / 2; }
+
+function _snapshotFeatures(beh) {
+  if (!beh) return null;
+  const snap = {};
+  for (const key of Object.keys(beh.features))
+    snap[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
+  return snap;
+}
 
 function spawnCG(char) {
+  // Snapshot live behaviour state so the new glyph inherits it
+  if (currentCG) {
+    _savedDanceFeatures = _snapshotFeatures(getDanceBeh(currentCG)) ?? _savedDanceFeatures;
+    _savedNoiseFeatures = _snapshotFeatures(getNoiseBeh(currentCG)) ?? _savedNoiseFeatures;
+  }
   sel = null; drag = null; bodyDrag = null;
   currentCG = makeCG(char, canvasCX(), canvasCY());
   const otFont = fontCache.get(P.font);
@@ -982,6 +1151,7 @@ function spawnCG(char) {
   else ensureFont(P.font);
   updateCharDisplay(char);
   if (danceActive) attachDance(currentCG);
+  if (noiseActive) { attachNoise(currentCG); _syncNoiseFeatureRows?.(); }
 }
 
 function clearCG() {
@@ -995,12 +1165,13 @@ function syncCGtoP() {
   if (!currentCG) return;
   // Font or size change → discard edits and reinit path
   if (currentCG.font !== P.font || currentCG.size !== P.size) {
-    currentCG._baseCmds     = null;
-    currentCG._displayCmds  = null;
-    currentCG._noiseState   = null;
-    currentCG._noiseSlots   = null;
-    currentCG._cachedPeriod = -1;
-    currentCG._fontStr      = null;
+    currentCG._baseCmds          = null;
+    currentCG._displayCmds       = null;
+    currentCG._noiseState        = null;
+    currentCG._noiseSlots        = null;
+    currentCG._cachedPeriod      = -1;
+    currentCG._fontStr           = null;
+    currentCG._baselineAnchored  = null;
     sel = null;
   }
   currentCG.font          = P.font;
@@ -1016,25 +1187,31 @@ function loop(ts) {
   if (_lastTs === null) { _lastTs = ts; }
   const elapsed = Math.min((ts - _lastTs) / 1000, 0.1);
   _lastTs = ts;
-  _accum += elapsed;
 
   _cgsList.length = 0;
   if (currentCG) _cgsList.push(currentCG);
-  _bCtx.time = ts / 1000;
-  _renderTime = ts / 1000;
-  // Panel (P) is always the source for Independent noise — dance doesn't override it.
-  const indNoiseActive = P.gaussAmt > 0 || P.poissonAmt > 0;
-  while (_accum >= FIXED_DT) {
-    AgentEngine.processFrame(FIXED_DT, _bCtx);
-    if (currentCG && currentCG._baseCmds && indNoiseActive && !P.frozen) {
-      updateNoiseState(currentCG, FIXED_DT, P);
+
+  if (P.frozen) {
+    // Hold clock still — behaviours tick against the frozen time value
+    _bCtx.time  = _frozenTime;
+    _renderTime = _frozenTime;
+  } else {
+    _accum += elapsed;
+    _frozenTime = ts / 1000;   // keep updated so unfreeze resumes smoothly
+    _bCtx.time  = _frozenTime;
+    _renderTime = _frozenTime;
+  }
+
+  if (!P.frozen) {
+    while (_accum >= FIXED_DT) {
+      AgentEngine.processFrame(FIXED_DT, _bCtx);  // NoiseBehavior.apply handles updateNoiseState
+      // Keep glyph pinned while user is dragging — stops DanceBehavior drift fighting the drag
+      if (bodyDrag && currentCG) {
+        currentCG.dynamics.vx = 0;
+        currentCG.dynamics.vy = 0;
+      }
+      _accum -= FIXED_DT;
     }
-    // Keep glyph pinned while user is dragging — stops DanceBehavior drift fighting the drag
-    if (bodyDrag && currentCG) {
-      currentCG.dynamics.vx = 0;
-      currentCG.dynamics.vy = 0;
-    }
-    _accum -= FIXED_DT;
   }
 
   ctx.fillStyle = P.bg;
@@ -1286,6 +1463,153 @@ function makeSlider(label, min, max, step, getter, setter) {
   return row;
 }
 
+// Builds a feature row: checkbox toggle + optional param sliders (shown when enabled).
+// paramDefs: array of { key, label, min, max, step }
+// Builds a feature row: independent checkbox (enable/disable) + accordion (show/hide params).
+// Reads/writes to getDanceBeh(currentCG).features[featureKey].
+function makeFeatureRow(label, featureKey, paramDefs) {
+  const wrap = document.createElement('div');
+  wrap.className = 'feature-row';
+
+  // Header: [☐] [▶] Label — checkbox and accordion are independent
+  const hd = document.createElement('div');
+  hd.className = 'feature-hd';
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = `cb-feat-${featureKey}`;
+  cb.addEventListener('click', e => e.stopPropagation()); // don't collapse accordion on checkbox click
+
+  const lbl = document.createElement('span');
+  lbl.className = 'feature-label'; lbl.textContent = label;
+  lbl.addEventListener('click', () => cb.click()); // clicking label toggles checkbox only
+
+  hd.append(cb);
+
+  // Param sliders — only add accordion arrow if there are params
+  const paramsDiv = document.createElement('div');
+  paramsDiv.className = 'feature-params';
+
+  if (paramDefs.length > 0) {
+    const arrow = document.createElement('span');
+    arrow.className = 'feature-arrow open';
+    arrow.textContent = '▶';
+    hd.append(arrow, lbl);
+
+    for (const pd of paramDefs) {
+      paramsDiv.appendChild(makeSlider(pd.label, pd.min, pd.max, pd.step,
+        () => getDanceBeh(currentCG)?.features[featureKey]?.params[pd.key] ?? pd.min,
+        v  => {
+          const beh = getDanceBeh(currentCG);
+          if (beh?.features[featureKey]) beh.features[featureKey].params[pd.key] = v;
+        }
+      ));
+    }
+
+    // Clicking the header (not the checkbox or label) toggles the accordion
+    hd.addEventListener('click', () => {
+      arrow.classList.toggle('open');
+      paramsDiv.classList.toggle('hidden');
+    });
+  } else {
+    hd.append(lbl); // no arrow for param-less features
+  }
+
+  wrap.appendChild(hd);
+  wrap.appendChild(paramsDiv);
+
+  cb.addEventListener('change', () => {
+    // Auto-enable Dance if a feature is turned on while Dance is off
+    if (cb.checked && !getDanceBeh(currentCG)) {
+      danceActive = true;
+      if (_danceCb) _danceCb.checked = true;
+      if (currentCG) attachDance(currentCG);
+    }
+    const beh = getDanceBeh(currentCG);
+    if (!beh?.features[featureKey]) return;
+    beh.features[featureKey].enabled = cb.checked;
+    // Side effect: recompute baseline anchor map when plantFeet is toggled on
+    if (featureKey === 'plantFeet' && cb.checked && currentCG)
+      _recomputeBaselineAnchored(currentCG, currentCG.size * (beh.features.plantFeet.params.thresh ?? 0.05));
+  });
+
+  // sync() updates the checkbox state only — accordion visibility is user-controlled
+  function sync() {
+    cb.checked = !!getDanceBeh(currentCG)?.features[featureKey]?.enabled;
+  }
+  sync();
+
+  wrap.sync = sync;
+  return wrap;
+}
+
+// Like makeFeatureRow but reads/writes NoiseBehavior features instead of DanceBehavior.
+function makeNoiseFeatureRow(label, featureKey, paramDefs) {
+  const wrap = document.createElement('div');
+  wrap.className = 'feature-row';
+
+  const hd = document.createElement('div');
+  hd.className = 'feature-hd';
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = `cb-noise-${featureKey}`;
+  cb.addEventListener('click', e => e.stopPropagation());
+
+  const lbl = document.createElement('span');
+  lbl.className = 'feature-label'; lbl.textContent = label;
+  lbl.addEventListener('click', () => cb.click());
+
+  hd.append(cb);
+
+  const paramsDiv = document.createElement('div');
+  paramsDiv.className = 'feature-params';
+
+  if (paramDefs.length > 0) {
+    const arrow = document.createElement('span');
+    arrow.className = 'feature-arrow open';
+    arrow.textContent = '▶';
+    hd.append(arrow, lbl);
+
+    for (const pd of paramDefs) {
+      paramsDiv.appendChild(makeSlider(pd.label, pd.min, pd.max, pd.step,
+        () => getNoiseBeh(currentCG)?.features[featureKey]?.params[pd.key] ?? pd.min,
+        v  => {
+          const beh = getNoiseBeh(currentCG);
+          if (beh?.features[featureKey]) beh.features[featureKey].params[pd.key] = v;
+        }
+      ));
+    }
+
+    hd.addEventListener('click', () => {
+      arrow.classList.toggle('open');
+      paramsDiv.classList.toggle('hidden');
+    });
+  } else {
+    hd.append(lbl);
+  }
+
+  wrap.appendChild(hd);
+  wrap.appendChild(paramsDiv);
+
+  cb.addEventListener('change', () => {
+    // Auto-enable Noise if a feature is turned on while Noise is off
+    if (cb.checked && !getNoiseBeh(currentCG)) {
+      noiseActive = true;
+      if (_noiseCb) _noiseCb.checked = true;
+      if (currentCG) attachNoise(currentCG);
+    }
+    const beh = getNoiseBeh(currentCG);
+    if (beh?.features[featureKey]) beh.features[featureKey].enabled = cb.checked;
+  });
+
+  function sync() {
+    cb.checked = !!getNoiseBeh(currentCG)?.features[featureKey]?.enabled;
+  }
+  sync();
+
+  wrap.sync = sync;
+  return wrap;
+}
+
 function makeColorRow(label, getter, setter) {
   const row = document.createElement('div');
   row.className = 'color-row';
@@ -1492,7 +1816,23 @@ function _makeFileData(name) {
     settings:  { ...P },
     behaviour: {
       danceActive,
-      danceParams: currentCG._danceParams ? { ...currentCG._danceParams } : null,
+      noiseActive,
+      dance: (() => {
+        const beh = getDanceBeh(currentCG);
+        if (!beh) return null;
+        const features = {};
+        for (const key of Object.keys(beh.features))
+          features[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
+        return { features };
+      })(),
+      noise: (() => {
+        const beh = getNoiseBeh(currentCG);
+        if (!beh) return null;
+        const features = {};
+        for (const key of Object.keys(beh.features))
+          features[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
+        return { features };
+      })(),
     },
     baseCmds: currentCG._baseCmds ? currentCG._baseCmds.map(c => ({ ...c })) : null,
   };
@@ -1619,21 +1959,21 @@ async function saveStateToFile() {
 
   try {
     const json = JSON.stringify(_makeFileData(name), null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+    const blob = new Blob([json], { type: 'application/octet-stream' });
     const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { href: url, download: `${name}.abcd.json` });
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `${name}.abcd` });
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    setSaveStatus('ok', `Saved: ${name}.abcd.json`);
+    setSaveStatus('ok', `Saved: ${name}.abcd`);
   } catch (e) {
     setSaveStatus('err', `Save failed: ${e.message}`);
   }
 }
 
 function openStateFromFile() {
-  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,.abcd.json' });
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.abcd,.json' });
   input.addEventListener('change', async () => {
     if (!input.files[0]) return;
     try {
@@ -1651,18 +1991,49 @@ function loadStateFromData(data) {
   // Restore behaviour state
   if (data.behaviour) {
     danceActive = !!data.behaviour.danceActive;
+    noiseActive = !!data.behaviour.noiseActive;
   }
   rebuildPanel();
+  syncToolbar();
   spawnCG(data.char);
-  // Restore dance params over whatever spawnCG attached
-  if (data.behaviour?.danceParams && currentCG?._danceParams) {
-    Object.assign(currentCG._danceParams, data.behaviour.danceParams);
+  // Restore dance features over whatever spawnCG attached
+  if (data.behaviour && currentCG) {
+    const beh = getDanceBeh(currentCG);
+    if (beh) {
+      if (data.behaviour.dance?.features) {
+        // New format: restore feature objects directly
+        Object.assign(beh.features, data.behaviour.dance.features);
+      } else if (data.behaviour.danceParams) {
+        // Legacy format: translate flat danceParams → feature model
+        const dp = data.behaviour.danceParams;
+        if (dp.spinAmt   != null) beh.features.spin.params.amt    = dp.spinAmt;
+        if (dp.spinSpeed != null) beh.features.spin.params.speed  = dp.spinSpeed;
+        if (dp.pulseAmt  != null) beh.features.pulse.params.amt   = dp.pulseAmt;
+        if (dp.pulseSpeed!= null) beh.features.pulse.params.speed = dp.pulseSpeed;
+        if (dp.driftAmt  != null) beh.features.drift.params.amt   = dp.driftAmt;
+        if (dp.driftSpeed!= null) beh.features.drift.params.speed = dp.driftSpeed;
+        if (dp.pinFeet != null) beh.features.pinFeet.enabled  = dp.pinFeet;
+        if (dp.plantFeet   != null) beh.features.plantFeet.enabled    = dp.plantFeet;
+        if (dp.pinFeetThresh != null) beh.features.plantFeet.params.thresh = dp.pinFeetThresh;
+      }
+      if (beh.features.plantFeet?.enabled)
+        _recomputeBaselineAnchored(currentCG, currentCG.size * beh.features.plantFeet.params.thresh);
+    }
+    // Restore noise features (no legacy format — old files without noise key default to off)
+    if (data.behaviour.noise?.features) {
+      const nbeh = getNoiseBeh(currentCG);
+      if (nbeh) {
+        Object.assign(nbeh.features, data.behaviour.noise.features);
+        _syncNoiseFeatureRows?.();
+      }
+    }
   }
   if (data.baseCmds && currentCG) {
-    currentCG._baseCmds     = data.baseCmds.map(c => ({ ...c }));
-    currentCG._displayCmds  = data.baseCmds.map(c => ({ ...c }));
-    currentCG._noiseState   = null;
-    currentCG._cachedPeriod = -1;
+    currentCG._baseCmds          = data.baseCmds.map(c => ({ ...c }));
+    currentCG._displayCmds       = data.baseCmds.map(c => ({ ...c }));
+    currentCG._noiseState        = null;
+    currentCG._cachedPeriod      = -1;
+    currentCG._baselineAnchored  = null;  // recomputed next time initCGPath runs
   }
 }
 
@@ -1677,6 +2048,12 @@ function rebuildPanel() {
 function startAutoRun() {
   _autoRunning = true;
   _autoIndex   = 0;
+  // Snapshot current dance features so every letter gets the same settings.
+  // Falls back to DANCE_DEFAULT if no glyph is present.
+  const src = getDanceBeh(currentCG)?.features ?? DANCE_DEFAULT;
+  _autoFeatures = {};
+  for (const key of Object.keys(src))
+    _autoFeatures[key] = { enabled: src[key].enabled, params: { ...src[key].params } };
   _autoStep();
   _updateAutoBtn();
 }
@@ -1690,7 +2067,7 @@ function stopAutoRun() {
 
 function _autoStep() {
   if (!_autoRunning) return;
-  if (_autoIndex >= AUTO_ALPHABET.length) { stopAutoRun(); return; }
+  if (_autoIndex >= AUTO_ALPHABET.length) _autoIndex = 0;  // loop
 
   const prevX        = currentCG ? currentCG.homeX : null;
   const prevY        = currentCG ? currentCG.homeY : null;
@@ -1699,8 +2076,17 @@ function _autoStep() {
   const base = AUTO_ALPHABET[_autoIndex];
   const char = _autoUppercase ? base : base.toLowerCase();
   danceActive = true;
-  if (_danceCb) _danceCb.checked = true;
+  if (_danceCb)  _danceCb.checked  = true;
+  if (_noiseCb)  _noiseCb.checked  = noiseActive;
   spawnCG(char);   // clears bodyDrag — we restore it below
+  // Override per-letter dance config with the snapshot taken at run start
+  if (_autoFeatures && getDanceBeh(currentCG)) {
+    const f = getDanceBeh(currentCG).features;
+    for (const key of Object.keys(_autoFeatures))
+      f[key] = { enabled: _autoFeatures[key].enabled, params: { ..._autoFeatures[key].params } };
+    if (f.plantFeet?.enabled)
+      _recomputeBaselineAnchored(currentCG, currentCG.size * f.plantFeet.params.thresh);
+  }
 
   if (prevX !== null) {
     currentCG.x = currentCG.homeX = prevX;
@@ -1723,33 +2109,30 @@ function _updateAutoBtn() {
 }
 
 // ── Build panel UI ────────────────────────────────────────────────────────────
+// ── Toolbar ───────────────────────────────────────────────────────────────────
+// Thin wrappers — implementation lives in PoEMM/shared/font-toolbar.js
+function buildToolbar() {
+  FontToolbar.buildFontToolbar({
+    container:  document.getElementById('toolbar'),
+    P,
+    fonts:      FONTS,
+    ensureFont,
+    onChange:   () => { if (currentCG) syncCGtoP(); },
+  });
+}
+
+function syncToolbar() {
+  FontToolbar.syncFontToolbar(P);
+}
+
 function buildUI() {
   const panel = document.getElementById('panel');
 
-  // ── Glyph ──
-  const glyphSec = makeSection('Glyph');
-  glyphSec.bd.appendChild(makeSelectRow('Font', FONTS,
-    () => P.font,
-    v  => { P.font = v; }
-  ));
-  glyphSec.bd.appendChild(makeSlider('Size', 12, 600, 1,
-    () => P.size,
-    v  => { P.size = v; }
-  ));
-  glyphSec.bd.appendChild(makeCheckColorRow('Fill',
-    () => P.fillOn,    v => { P.fillOn = v; },
-    () => P.fillColor, v => { P.fillColor = v; if (currentCG) currentCG.material.fill = v; }
-  ));
-  glyphSec.bd.appendChild(makeCheckColorRow('Stroke',
-    () => P.strokeOn,    v => { P.strokeOn = v; },
-    () => P.strokeColor, v => { P.strokeColor = v; }
-  ));
-  glyphSec.bd.appendChild(makeSlider('Stroke width', 0.5, 6, 0.5,
-    () => P.strokeWidth, v => { P.strokeWidth = v; }
-  ));
-  glyphSec.bd.appendChild(makeColorRow('Background', () => P.bg, v => { P.bg = v; }));
-  panel.appendChild(glyphSec.hd);
-  panel.appendChild(glyphSec.bd);
+  // ── Colour (background only — font/fill/stroke are in the toolbar) ──
+  const colourSec = makeSection('Colour');
+  colourSec.bd.appendChild(makeColorRow('Background', () => P.bg, v => { P.bg = v; }));
+  panel.appendChild(colourSec.hd);
+  panel.appendChild(colourSec.bd);
 
   // ── Render ──
   const renderSec = makeSection('Render');
@@ -1764,37 +2147,6 @@ function buildUI() {
   renderSec.bd.appendChild(makeSingleToggle('Handles', 'Handles',
     () => P.showHandles, v => { P.showHandles = v; }
   ));
-
-  // ── Render → Independent ──
-  const indSub = makeSubSection('Independent');
-  indSub.bd.appendChild(makeSlider('Gaussian', 0, 50, 0.5,
-    () => P.gaussAmt, v => { P.gaussAmt = v; }
-  ));
-  indSub.bd.appendChild(makeSlider('Poisson', 0, 50, 0.5,
-    () => P.poissonAmt, v => { P.poissonAmt = v; }
-  ));
-  indSub.bd.appendChild(makeSlider('Smooth', 0, 0.99, 0.01,
-    () => P.noiseSmooth, v => { P.noiseSmooth = v; }
-  ));
-  indSub.bd.appendChild(makeSlider('Period (s)', 0, 3, 0.05,
-    () => P.noisePeriod, v => { P.noisePeriod = v; }
-  ));
-  renderSec.bd.appendChild(indSub.hd);
-  renderSec.bd.appendChild(indSub.bd);
-
-  // ── Render → Spatially Coherent ──
-  const cohSub = makeSubSection('Spatially Coherent');
-  cohSub.bd.appendChild(makeSlider('Amount', 0, 50, 0.5,
-    () => P.perlinAmt, v => { P.perlinAmt = v; }
-  ));
-  cohSub.bd.appendChild(makeSlider('Frequency', 0.001, 0.05, 0.001,
-    () => P.perlinFreq, v => { P.perlinFreq = v; }
-  ));
-  cohSub.bd.appendChild(makeSlider('Speed', 0, 2, 0.01,
-    () => P.perlinSpeed, v => { P.perlinSpeed = v; }
-  ));
-  renderSec.bd.appendChild(cohSub.hd);
-  renderSec.bd.appendChild(cohSub.bd);
 
   // ── Render → Physically Motivated (stub) ──
   const physSub = makeSubSection('Physically Motivated', false);
@@ -1821,28 +2173,92 @@ function buildUI() {
   const behSec = makeSection('Behaviour');
 
   const danceSub = makeSubSection('Dance');
-  // Row 1: checkbox toggle
-  const danceToggleRow = document.createElement('div');
-  danceToggleRow.className = 'check-color-row';
+
+  // Embed the Dance on/off checkbox directly in the subsection header.
+  // stopPropagation on click prevents the checkbox from also collapsing the accordion.
   _danceCb = document.createElement('input');
   _danceCb.type = 'checkbox'; _danceCb.id = 'cb-dance'; _danceCb.checked = danceActive;
+  _danceCb.style.cssText = 'cursor:pointer; accent-color:#7af; margin-right:4px;';
+  _danceCb.addEventListener('click', e => e.stopPropagation());
+  danceSub.hd.insertBefore(_danceCb, danceSub.hd.firstChild);
+
+  // Feature rows
+  const featSpinRow      = makeFeatureRow('Spin',       'spin',      [
+    { key: 'amt',  label: 'Amount', min: 0,    max: 0.3, step: 0.005 },
+    { key: 'speed',label: 'Speed',  min: 0.01, max: 2,   step: 0.01  },
+  ]);
+  const featPulseRow     = makeFeatureRow('Pulse',      'pulse',     [
+    { key: 'amt',  label: 'Amount', min: 0,    max: 0.3, step: 0.005 },
+    { key: 'speed',label: 'Speed',  min: 0.01, max: 2,   step: 0.01  },
+  ]);
+  const featDriftRow     = makeFeatureRow('Drift',      'drift',     [
+    { key: 'amt',  label: 'Amount', min: 0,    max: 50,  step: 0.5   },
+    { key: 'speed',label: 'Speed',  min: 0.01, max: 2,   step: 0.01  },
+  ]);
+  const featPlantRow     = makeFeatureRow('Pin feet',   'pinFeet',   []);
+  const featPinRow       = makeFeatureRow('Plant feet', 'plantFeet', [
+    { key: 'thresh', label: 'Threshold', min: 0, max: 0.2, step: 0.005 },
+  ]);
+  const featRows = [featSpinRow, featPulseRow, featDriftRow, featPlantRow, featPinRow];
+  featRows.forEach(r => danceSub.bd.appendChild(r));
+
+  // Show/hide features and sync their state when Dance is toggled
+  function syncFeatureRows() {
+    // Sync each feature row's checkbox/slider state to the current glyph.
+    // Visibility is controlled solely by the accordion — not by danceActive.
+    featRows.forEach(r => r.sync());
+  }
+  _syncDanceFeatureRows = syncFeatureRows;  // expose for attachDance to call post-spawn
   _danceCb.addEventListener('change', () => {
     danceActive = _danceCb.checked;
     if (danceActive) { if (currentCG) attachDance(currentCG); }
     else             { if (currentCG) detachDance(currentCG); }
+    syncFeatureRows();
   });
-  const danceLbl = document.createElement('label');
-  danceLbl.htmlFor = 'cb-dance'; danceLbl.textContent = 'Dance';
-  danceToggleRow.appendChild(_danceCb);
-  danceToggleRow.appendChild(danceLbl);
-  danceSub.bd.appendChild(danceToggleRow);
-  // Row 2: spin amt slider
-  danceSub.bd.appendChild(makeSlider('Spin amt', 0, 0.3, 0.005,
-    () => currentCG?._danceParams?.spinAmt ?? 0,
-    v  => { if (currentCG?._danceParams) currentCG._danceParams.spinAmt = v; }
-  ));
+  syncFeatureRows();
+
   behSec.bd.appendChild(danceSub.hd);
   behSec.bd.appendChild(danceSub.bd);
+
+  // ── Behaviour → Noise ──
+  const noiseSub = makeSubSection('Noise');
+
+  // Embed Noise on/off checkbox in the subsection header (same pattern as Dance)
+  _noiseCb = document.createElement('input');
+  _noiseCb.type = 'checkbox'; _noiseCb.id = 'cb-noise'; _noiseCb.checked = noiseActive;
+  _noiseCb.style.cssText = 'cursor:pointer; accent-color:#7af; margin-right:4px;';
+  _noiseCb.addEventListener('click', e => e.stopPropagation());
+  noiseSub.hd.insertBefore(_noiseCb, noiseSub.hd.firstChild);
+
+  const noiseIndRow = makeNoiseFeatureRow('Independent', 'independent', [
+    { key: 'gaussAmt',   label: 'Gaussian', min: 0, max: 50,   step: 0.5  },
+    { key: 'poissonAmt', label: 'Poisson',  min: 0, max: 50,   step: 0.5  },
+    { key: 'noiseSmooth',label: 'Smooth',   min: 0, max: 0.99, step: 0.01 },
+    { key: 'noisePeriod',label: 'Period (s)',min:0, max: 3,    step: 0.05 },
+  ]);
+  const noisePerlinRow = makeNoiseFeatureRow('Perlin', 'perlin', [
+    { key: 'perlinAmt',  label: 'Amount',    min: 0,     max: 50,   step: 0.5   },
+    { key: 'perlinFreq', label: 'Frequency', min: 0.001, max: 0.05, step: 0.001 },
+    { key: 'perlinSpeed',label: 'Speed',     min: 0,     max: 2,    step: 0.01  },
+  ]);
+  const noiseRows = [noiseIndRow, noisePerlinRow];
+  noiseRows.forEach(r => noiseSub.bd.appendChild(r));
+
+  function syncNoiseFeatureRows() {
+    noiseRows.forEach(r => r.sync());
+  }
+  _syncNoiseFeatureRows = syncNoiseFeatureRows;
+
+  _noiseCb.addEventListener('change', () => {
+    noiseActive = _noiseCb.checked;
+    if (noiseActive) { if (currentCG) attachNoise(currentCG); }
+    else             { if (currentCG) detachNoise(currentCG); }
+    syncNoiseFeatureRows();
+  });
+  syncNoiseFeatureRows();
+
+  behSec.bd.appendChild(noiseSub.hd);
+  behSec.bd.appendChild(noiseSub.bd);
 
   panel.appendChild(behSec.hd);
   panel.appendChild(behSec.bd);
@@ -1851,9 +2267,9 @@ function buildUI() {
   const actSec = makeSection('Actions');
   actSec.bd.appendChild(makeActionBtn('Clear  (Esc / ⌫)', clearCG));
 
-  const freezeBtn = makeActionBtn('Freeze noise', () => {
+  const freezeBtn = makeActionBtn('Freeze', () => {
     P.frozen = !P.frozen;
-    freezeBtn.textContent = P.frozen ? 'Unfreeze noise' : 'Freeze noise';
+    freezeBtn.textContent       = P.frozen ? 'Unfreeze' : 'Freeze';
     freezeBtn.style.color       = P.frozen ? '#7af' : '';
     freezeBtn.style.borderColor = P.frozen ? '#2a4060' : '';
   });
@@ -1964,6 +2380,7 @@ const _urlChar = new URLSearchParams(window.location.search).get('char');
 if (_urlChar) { P.size = 400; danceActive = true; }
 
 resizeCanvas();
+buildToolbar();
 buildUI();
 ensureFont(P.font);  // preload default font for vector mode
 requestAnimationFrame(loop);
@@ -1971,6 +2388,7 @@ requestAnimationFrame(loop);
 if (_urlChar) {
   spawnCG(_urlChar[0]);
   if (_danceCb) _danceCb.checked = true;
+  if (_noiseCb) _noiseCb.checked = noiseActive;
 }
 </script>
 </body>

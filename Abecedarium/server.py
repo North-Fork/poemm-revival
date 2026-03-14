@@ -12,9 +12,10 @@ Usage:
   python3 server.py [port]   (default port 8080)
 """
 
-import http.server, json, os, pathlib, sys, urllib.parse
+import functools, http.server, json, os, pathlib, sys, urllib.parse
 
-SAVE_DIR = pathlib.Path(__file__).parent / 'state'
+SAVE_DIR  = pathlib.Path(__file__).parent / 'state'
+SERVE_ROOT = pathlib.Path(__file__).parent.parent   # PoEMM/ — gives shared/ access
 SAVE_DIR.mkdir(exist_ok=True)
 
 
@@ -90,9 +91,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    addr = ('', port)
-    httpd = http.server.HTTPServer(addr, Handler)
-    print(f'Abecedarium server → http://macmighty.local:{port}')
+    port    = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    addr    = ('', port)
+    handler = functools.partial(Handler, directory=str(SERVE_ROOT))
+    httpd   = http.server.HTTPServer(addr, handler)
+    print(f'Abecedarium server → http://macmighty.local:{port}/Abecedarium/')
+    print(f'Serve root         → {SERVE_ROOT}')
     print(f'Saves directory    → {SAVE_DIR}')
     httpd.serve_forever()

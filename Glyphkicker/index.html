@@ -88,12 +88,16 @@ select:focus { outline: none; border-color: #336; }
 .mbtn.active { background: #1a2a44; color: #7af; border-color: #336; }
 
 .bph-empty { font-size: 10px; color: #444; padding: 6px 0; line-height: 1.5; }
-.bph-sel-label { font-size: 10px; color: #666; margin-bottom: 6px; }
 .bph-behaviour { margin-bottom: 10px; }
 .bph-beh-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .bph-beh-label { font-size: 11px; color: #aaa; }
 .bph-beh-remove { background: none; border: none; color: #444; cursor: pointer; font-size: 10px; padding: 0 2px; }
 .bph-beh-remove:hover { color: #f77; }
+.bph-cascade-btn {
+  font-size: 9px; padding: 1px 5px; border-radius: 2px; cursor: pointer;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #555; margin-left: 4px;
+}
+.bph-cascade-btn.unit-mode { background: #1a2a44; color: #7af; border-color: #336; }
 
 .geo-section-label {
   font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
@@ -106,6 +110,7 @@ select:focus { outline: none; border-color: #336; }
 }
 #smTriggerInput:focus { border-color: #336; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
 <script src="font-toolbar.js"></script>
 </head>
 <body>
@@ -114,6 +119,12 @@ select:focus { outline: none; border-color: #336; }
 
 <div id="panel">
   <div id="panel-title">Glyphkicker</div>
+
+  <div class="btn-group" style="margin-bottom:8px">
+    <button class="jbtn" id="saveBtn">Save</button>
+    <button class="jbtn" id="loadBtn">Load</button>
+  </div>
+  <input type="file" id="loadFileInput" accept=".json" style="display:none">
 
   <div class="section-label">Type</div>
 
@@ -124,6 +135,18 @@ select:focus { outline: none; border-color: #336; }
       <button class="jbtn"        data-val="center">Center</button>
       <button class="jbtn"        data-val="right">Right</button>
     </div>
+  </div>
+
+  <div class="param-row" style="margin-top:6px">
+    <div class="param-header">
+      <span class="param-name">Font file</span>
+      <span id="otFontLabel" style="color:#7af;font-size:10px;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap;max-width:100px">none</span>
+    </div>
+    <label class="jbtn" style="width:100%;text-align:center;cursor:pointer;margin-top:4px;display:block">
+      Load .ttf / .otf
+      <input type="file" id="otFontInput" accept=".ttf,.otf,.woff" style="display:none">
+    </label>
   </div>
 
   <div class="section-label">Colour</div>
@@ -182,6 +205,7 @@ select:focus { outline: none; border-color: #336; }
 
   <div id="selectionPanel" style="display:none">
     <div class="section-label">Behaviours</div>
+    <div id="selLevel" style="font-size:10px;color:#7af;margin-bottom:4px;min-height:14px"></div>
     <div id="bPanel"></div>
     <div class="param-row">
       <select id="bAdd">
@@ -201,10 +225,10 @@ select:focus { outline: none; border-color: #336; }
         <option value="Contagion">Contagion</option>
       </select>
     </div>
-    <div class="section-label">Geometry</div>
+    <div class="section-label" data-section="geo">Geometry</div>
     <div id="geoPanel"></div>
 
-    <div class="section-label">Agent</div>
+    <div class="section-label" data-section="agent">Agent</div>
     <div id="agentPanel">
       <div style="display:flex;gap:4px;margin-top:2px">
         <input type="text" id="smTriggerInput" placeholder="message type">
@@ -287,6 +311,9 @@ let cursorPos      = 0;
 let anchorPos      = 0;     // text-range selection anchor; equals cursorPos when no range active
 let glyphs         = [];
 let prevDocText    = '';    // last-laid-out string, used for position transfer
+let docModel       = null;  // hierarchy tree (Document → Passage → Line → Word → Glyph)
+let otFont             = null;   // loaded opentype.Font — null means no font loaded yet
+let showBezierHandles  = false;  // debug: draw bezier anchors + control handles
 
 // Layout origin — where the first line baseline starts. Updated by blank-canvas clicks.
 let layoutOriginX  = MARGIN;
@@ -296,23 +323,53 @@ let layoutOriginY  = null;  // null → MARGIN + fontPt (computed at layout time
 let editorMode    = 'type';    // 'type' | 'select'
 let selectedIds   = new Set(); // IDs of currently selected glyph agents
 let selectedGlyphs = [];       // live references (re-synced after each layout)
+let selectedNode  = null;      // the currently-selected hierarchy node (Glyph | Word | Line | Passage) or null
+let _previewFont  = null;      // font name being hovered in dropdown (null = none)
 
 // ── Undo / Redo ─────────────────────────────────────────────────────────────────
 const undoStack = [];
 const redoStack = [];
 const MAX_UNDO  = 100;
 
-function captureSnapshot() {
+// captureSnapshot(includeGlyphPositions)
+//   false (default) — authoring intent only: behaviours, material, geometry, text.
+//                     Glyph simulation state (x/y/dynamics) is NOT captured so that
+//                     undo reverses the edit, not the physics that followed it.
+//   true            — also captures glyph x/y/rotation/scale/dynamics for drag undo.
+//   Node positions are always behaviour-driven; Phase 6A snaps them home automatically
+//   when behaviours are removed, so they are never included in any snapshot.
+function captureSnapshot(includeGlyphPositions = false) {
+  // Node behaviours only (no positions).
+  const nodeBehaviours = {};
+  if (docModel) {
+    const allNodes = [
+      ...docModel.passages,
+      ...docModel.passages.flatMap(p => p.lines),
+      ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+    ];
+    for (const node of allNodes) {
+      if (!node.behaviours.length) continue;
+      nodeBehaviours[node.id] = {
+        behaviours: node.behaviours.map(b => {
+          const def = BEHAVIOUR_DEFS.find(d => d.type === b.type);
+          return def ? { key: def.key, params: { ...b.params }, cascade: !!b.cascade } : null;
+        }).filter(Boolean),
+      };
+    }
+  }
+
   return {
     docText,
     cursorPos,
     anchorPos,
     glyphByIndex: new Map(glyphs.map(g => [g.index, {
-      x:            g.x,
-      y:            g.y,
-      rotation:     g.rotation,
-      scale:        g.scale,
-      dynamics:     { ...g.dynamics },
+      ...(includeGlyphPositions && {
+        x:        g.x,
+        y:        g.y,
+        rotation: g.rotation,
+        scale:    g.scale,
+        dynamics: { ...g.dynamics },
+      }),
       material:     { ...g.material },
       geometryType: g.geometry.type,
       behaviours:   g.behaviours.map(b => {
@@ -320,6 +377,7 @@ function captureSnapshot() {
         return def ? { key: def.key, params: { ...b.params } } : null;
       }).filter(Boolean),
     }])),
+    nodeBehaviours,
   };
 }
 
@@ -330,20 +388,26 @@ function pushUndo() {
 }
 
 function applySnapshot(snap) {
-  docText     = snap.docText;
-  cursorPos   = snap.cursorPos;
-  anchorPos   = snap.anchorPos;
-  prevDocText = '';
-  glyphs      = [];
+  const textChanged = snap.docText !== docText;
+  docText   = snap.docText;
+  cursorPos = snap.cursorPos;
+  anchorPos = snap.anchorPos;
+  // Only force a full glyph rebuild when text changed. If only behaviours/material
+  // changed, let layout() see prevDocText === docText and skip Stage A — glyphs
+  // stay wherever they are visually rather than snapping back to home.
+  if (textChanged) { prevDocText = ''; glyphs = []; }
   layout();
   for (const g of glyphs) {
     const s = snap.glyphByIndex.get(g.index);
     if (!s) continue;
-    g.x          = s.x;
-    g.y          = s.y;
-    g.rotation   = s.rotation;
-    g.scale      = s.scale;
-    g.dynamics   = { ...s.dynamics };
+    // Restore positions only if the snapshot captured them (drag snapshots).
+    if (s.x !== undefined) {
+      g.x        = s.x;
+      g.y        = s.y;
+      g.rotation = s.rotation;
+      g.scale    = s.scale;
+      g.dynamics = { ...s.dynamics };
+    }
     g.material   = { ...s.material };
     g.geometry   = { type: s.geometryType };
     g.behaviours = s.behaviours.map(b => {
@@ -351,22 +415,206 @@ function applySnapshot(snap) {
       return def ? { type: def.type, params: { ...b.params } } : null;
     }).filter(Boolean);
   }
+  // Restore node behaviours. Absent = clean state; wipe whatever transferNodeBehaviours copied.
+  // Node positions are not stored — Phase 6A snaps them home when behaviours are empty.
+  if (docModel) {
+    const allNodes = [
+      ...docModel.passages,
+      ...docModel.passages.flatMap(p => p.lines),
+      ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+    ];
+    for (const node of allNodes) {
+      const s = snap.nodeBehaviours?.[node.id];
+      node.behaviours = s
+        ? s.behaviours.map(b => {
+            const def = BEHAVIOUR_DEFS.find(d => d.key === b.key);
+            return def ? { type: def.type, params: { ...b.params }, cascade: b.cascade } : null;
+          }).filter(Boolean)
+        : [];
+    }
+  }
   selectedIds    = new Set();
   selectedGlyphs = [];
+  selectedNode   = null;
   if (editorMode === 'select') { updateBehaviourPanel(); updateGeometryPanel(); }
   resetBlink();
 }
 
+// Returns true if a snapshot captured glyph positions (i.e. was a drag snapshot).
+function _snapHasPositions(snap) {
+  if (!snap.glyphByIndex.size) return false;
+  return [...snap.glyphByIndex.values()][0].x !== undefined;
+}
+
 function undo() {
   if (!undoStack.length) return;
-  redoStack.push(captureSnapshot());
-  applySnapshot(undoStack.pop());
+  const snap = undoStack.pop();
+  redoStack.push(captureSnapshot(_snapHasPositions(snap)));
+  applySnapshot(snap);
 }
 
 function redo() {
   if (!redoStack.length) return;
-  undoStack.push(captureSnapshot());
-  applySnapshot(redoStack.pop());
+  const snap = redoStack.pop();
+  undoStack.push(captureSnapshot(_snapHasPositions(snap)));
+  applySnapshot(snap);
+}
+
+// ── Save / Load ────────────────────────────────────────────────────────────────
+
+function saveJSON() {
+  // Serialise glyphs
+  const glyphData = glyphs.map(g => ({
+    index:        g.index,
+    x:            g.x,
+    y:            g.y,
+    rotation:     g.rotation,
+    scale:        g.scale,
+    dynamics:     { ...g.dynamics },
+    material:     { ...g.material },
+    geometryType: g.geometry.type,
+    behaviours:   g.behaviours.map(b => {
+      const def = BEHAVIOUR_DEFS.find(d => d.type === b.type);
+      return def ? { key: def.key, params: { ...b.params } } : null;
+    }).filter(Boolean),
+  }));
+
+  // Serialise non-trivial hierarchy nodes
+  const nodeData = [];
+  if (docModel) {
+    const allNodes = [
+      ...docModel.passages,
+      ...docModel.passages.flatMap(p => p.lines),
+      ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+    ];
+    for (const node of allNodes) {
+      if (!node.behaviours.length) continue;
+      nodeData.push({
+        id:         node.id,
+        behaviours: node.behaviours.map(b => {
+          const def = BEHAVIOUR_DEFS.find(d => d.type === b.type);
+          return def ? { key: def.key, params: { ...b.params }, cascade: !!b.cascade } : null;
+        }).filter(Boolean),
+      });
+    }
+  }
+
+  const data = {
+    version:       '2',
+    meta:          { created: new Date().toISOString() },
+    docText,
+    cursorPos,
+    layoutOriginX,
+    layoutOriginY,
+    params: {
+      fontFamily:   PARAMS.fontFamily,
+      fontPt:       PARAMS.fontPt,
+      fillOn:       PARAMS.fillOn,
+      fillColor:    PARAMS.fillColor,
+      strokeOn:     PARAMS.strokeOn,
+      strokeColor:  PARAMS.strokeColor,
+      strokeWidth:  PARAMS.strokeWidth,
+      background:   PARAMS.background,
+      justify:      PARAMS.justify,
+      bounceEdges:  PARAMS.bounceEdges,
+    },
+    glyphs: glyphData,
+    nodes:  nodeData,
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `glyphkicker-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadJSON(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    let data;
+    try { data = JSON.parse(e.target.result); } catch { return; }
+    if (data.docText === undefined) return;  // not a valid Glyphkicker file
+
+    // Restore global params
+    if (data.params) {
+      Object.assign(PARAMS, data.params);
+      document.getElementById('cBg').value          = PARAMS.background;
+      document.getElementById('cBounceEdges').checked = PARAMS.bounceEdges;
+      document.querySelectorAll('#justifyGroup .jbtn')
+        .forEach(b => b.classList.toggle('active', b.dataset.val === PARAMS.justify));
+    }
+
+    // Restore document text and cursor
+    docText       = data.docText ?? '';
+    cursorPos     = data.cursorPos ?? docText.length;
+    anchorPos     = cursorPos;
+    layoutOriginX = data.layoutOriginX ?? MARGIN;
+    layoutOriginY = data.layoutOriginY ?? null;
+    prevDocText   = '';
+    glyphs        = [];
+    layout();
+
+    // Restore glyph states
+    if (data.glyphs) {
+      const byIndex = new Map(data.glyphs.map(s => [s.index, s]));
+      for (const g of glyphs) {
+        const s = byIndex.get(g.index);
+        if (!s) continue;
+        g.x          = s.x;
+        g.y          = s.y;
+        g.rotation   = s.rotation;
+        g.scale      = s.scale;
+        g.dynamics   = { ...s.dynamics };
+        g.material   = { ...s.material };
+        g.geometry   = { type: s.geometryType };
+        g.behaviours = (s.behaviours ?? []).map(b => {
+          const def = BEHAVIOUR_DEFS.find(d => d.key === b.key);
+          return def ? { type: def.type, params: { ...b.params } } : null;
+        }).filter(Boolean);
+        if (s.geometryType === 'particles') {
+          g.geometry.params = { ...DEFAULT_PARTICLE_PARAMS };
+          buildParticleGeometry(g);
+        }
+      }
+    }
+
+    // Restore node states — absent nodes are reset, not skipped (same reason as applySnapshot).
+    if (docModel) {
+      const nodeMap = data.nodes ? new Map(data.nodes.map(s => [s.id, s])) : new Map();
+      const allNodes = [
+        ...docModel.passages,
+        ...docModel.passages.flatMap(p => p.lines),
+        ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+      ];
+      for (const node of allNodes) {
+        const s = nodeMap.get(node.id);
+        if (!s) {
+          node.behaviours = [];
+          node.x = node.homeX; node.y = node.homeY;
+          node.rotation = 0; node.scale = 1;
+          node.dynamics = { vx: 0, vy: 0, angularVel: 0, damping: 0.92 };
+          continue;
+        }
+        node.behaviours = (s.behaviours ?? []).map(b => {
+          const def = BEHAVIOUR_DEFS.find(d => d.key === b.key);
+          return def ? { type: def.type, params: { ...b.params }, cascade: b.cascade } : null;
+        }).filter(Boolean);
+        node.x = s.x; node.y = s.y; node.rotation = s.rotation; node.scale = s.scale;
+        node.dynamics = { ...s.dynamics };
+      }
+    }
+
+    selectNode(null);
+    selectedIds    = new Set();
+    selectedGlyphs = [];
+    if (editorMode === 'select') { updateBehaviourPanel(); updateGeometryPanel(); }
+    FontToolbar.syncFontToolbar(_toolbarP);
+    resetBlink();
+  };
+  reader.readAsText(file);
 }
 
 // ── GlyphAgent ─────────────────────────────────────────────────────────────────
@@ -392,9 +640,15 @@ function makeGlyph(char, index, hx, hy, w) {
       damping: 0.92,         // velocity multiplier each physics step
     },
     material: {
-      fill:      null,       // null → inherit PARAMS.fillColor
-      opacity:   1,
-      blendMode: 'source-over',
+      fill:        null,   // null → inherit PARAMS.fillColor
+      fontFamily:  null,   // null → inherit PARAMS.fontFamily
+      fontPt:      null,   // null → inherit PARAMS.fontPt
+      fillOn:      null,   // null → inherit PARAMS.fillOn
+      strokeOn:    null,   // null → inherit PARAMS.strokeOn
+      strokeColor: null,   // null → inherit PARAMS.strokeColor
+      strokeWidth: null,   // null → inherit PARAMS.strokeWidth
+      opacity:     1,
+      blendMode:   'source-over',
     },
     geometry:    { type: 'outline2d' },
     interaction: { hovered: false, selected: false },
@@ -414,6 +668,59 @@ function makeGlyph(char, index, hx, hy, w) {
     // Deterministic RNG seeded from this glyph's id
     rng: makeRNG(id),
   };
+}
+
+// ── Hierarchy node factories ───────────────────────────────────────────────────
+// Every non-glyph node carries the same shape: id, text, startIndex,
+// behaviours[], style, transform, homeTransform, and a children array.
+// Non-glyph nodes use the same flat interface as glyphs so any behaviour
+// can target them without modification (cascade: false mode).
+
+function _nodeBase(id, text, startIndex) {
+  return {
+    id,
+    text,
+    startIndex,
+    behaviours: [],
+    style: {
+      fontFamily: null, fontPt: null,
+      fill: null, fillOn: null,
+      strokeOn: null, strokeColor: null, strokeWidth: null, opacity: null,
+    },
+    // Flat glyph-compatible interface — replaces transform / homeTransform.
+    homeX: 0, homeY: 0,          // layout pivot (set by Stage B)
+    x: 0, y: 0,                  // current position (drifts with behaviours)
+    rotation: 0, scale: 1,
+    w: 0,                        // total width (set by Stage B)
+    dynamics: { vx: 0, vy: 0, angularVel: 0, damping: 0.92 },
+    _state: new Map(),
+    rng: null,                   // seeded RNG, set by each factory
+  };
+}
+
+function makeWord(text, startIndex, pi, li, wi) {
+  const id   = `p${pi}-l${li}-w${wi}`;
+  const node = Object.assign(_nodeBase(id, text, startIndex), { glyphs: [] });
+  node.rng   = makeRNG(id);
+  return node;
+}
+
+function makeLine(pi, li) {
+  const id   = `p${pi}-l${li}`;
+  const node = Object.assign(_nodeBase(id, '', 0), { words: [], glyphs: [] });
+  node.rng   = makeRNG(id);
+  return node;
+}
+
+function makePassage(pi) {
+  const id   = `p${pi}`;
+  const node = Object.assign(_nodeBase(id, '', 0), { lines: [] });
+  node.rng   = makeRNG(id);
+  return node;
+}
+
+function makeDocument() {
+  return Object.assign(_nodeBase('doc', '', 0), { passages: [] });
 }
 
 // ── Position transfer helpers ──────────────────────────────────────────────────
@@ -473,6 +780,28 @@ function spawnInterpolated(g, arr) {
   // else: neighbours are at home — keep this glyph's own homeX/homeY
 }
 
+// ── Node behaviour transfer ────────────────────────────────────────────────────
+// Carry behaviours[] from old hierarchy nodes to new ones across layout rebuilds.
+// Matches by (text, nearest startIndex) — same approach as glyph position transfer.
+function transferNodeBehaviours(oldNodes, newNodes) {
+  // Index old nodes that actually have behaviours, grouped by text content.
+  const byText = new Map();
+  for (const n of oldNodes) {
+    if (!n.behaviours.length) continue;
+    if (!byText.has(n.text)) byText.set(n.text, []);
+    byText.get(n.text).push(n);
+  }
+  // For each new node, find the closest-index old node with the same text.
+  for (const n of newNodes) {
+    const candidates = byText.get(n.text);
+    if (!candidates?.length) continue;
+    const best = candidates.reduce((a, b) =>
+      Math.abs(a.startIndex - n.startIndex) < Math.abs(b.startIndex - n.startIndex) ? a : b);
+    n.behaviours = best.behaviours;
+    candidates.splice(candidates.indexOf(best), 1);
+  }
+}
+
 // ── Layout engine ──────────────────────────────────────────────────────────────
 function fontStr() {
   return `${PARAMS.fontPt}px "${PARAMS.fontFamily}", serif`;
@@ -490,10 +819,16 @@ function justifyX(contentW) {
 function layout() {
   if (!W) return;
 
-  ctx.font         = fontStr();
   ctx.textBaseline = 'alphabetic';
 
-  const lineH  = PARAMS.fontPt * LINE_H_MULT;
+  // Per-character font overrides — read from current glyph material, preserved through transfer.
+  const prevFontMap = new Map(glyphs.map(g => [g.index, g.material]));
+  function charPt(i)      { return prevFontMap.get(i)?.fontPt     || PARAMS.fontPt;     }
+  function charFam(i)     { return prevFontMap.get(i)?.fontFamily || PARAMS.fontFamily; }
+  function charFont(i)    { return `${charPt(i)}px "${charFam(i)}", serif`; }
+
+  // Space width uses the global (default) font.
+  ctx.font = fontStr();
   const spaceW = ctx.measureText(' ').width;
   const next   = [];
 
@@ -532,7 +867,10 @@ function layout() {
     } else if (seg.type === 'space') {
       curItems.push({ seg }); runX += spaceW; runW += spaceW;
     } else {
-      const cws   = [...seg.text].map(c => ctx.measureText(c).width);
+      const cws   = [...seg.text].map((c, k) => {
+        ctx.font = charFont(seg.start + k);
+        return ctx.measureText(c).width;
+      });
       const wordW = cws.reduce((a, b) => a + b, 0);
       if (runX > 0 && runX + wordW > W - 2 * MARGIN) flushLine();
       curItems.push({ seg, cws, wordW }); runX += wordW; runW += wordW;
@@ -543,6 +881,18 @@ function layout() {
   // ── Second pass: place glyphs anchored by justification ──────────────────
   let y = layoutOriginY !== null ? layoutOriginY : MARGIN + PARAMS.fontPt;
   for (const line of lines) {
+    // Line height driven by the tallest glyph on this visual line.
+    let maxPt = PARAMS.fontPt;
+    for (const { seg } of line.items) {
+      if (seg.type === 'word') {
+        for (let k = 0; k < seg.text.length; k++) {
+          const pt = charPt(seg.start + k);
+          if (pt > maxPt) maxPt = pt;
+        }
+      }
+    }
+    const lineH = maxPt * LINE_H_MULT;
+
     let x = justifyX(line.contentW);
     let endedWithNewline = false;
     for (const { seg, cws } of line.items) {
@@ -611,9 +961,176 @@ function layout() {
 
   prevDocText = docText;
   glyphs = next;
+
+  // ── Stage B: build hierarchy tree ─────────────────────────────────────────
+  // Scan the flat glyphs[] to build Document → Passage → Line → Word structure.
+  // Visual line boundaries are detected by homeY changes (word-wrap produces no
+  // \n glyph, but the y-coordinate jumps between the last glyph of one visual
+  // line and the first glyph of the next).
+  // Passage boundaries are detected by consecutive \n glyphs (a blank line).
+  {
+    const prevPassages = docModel ? docModel.passages : [];
+    const prevAllLines = prevPassages.flatMap(p => p.lines);
+    const prevAllWords = prevAllLines.flatMap(l => l.words);
+
+    const newDoc = makeDocument();
+    let pi = 0, li = 0, wi = 0;
+    let curPassage = makePassage(pi);
+    let curLine    = makeLine(pi, li);
+    let curWord    = null;
+    let prevY      = null;   // homeY of the last non-newline glyph processed
+    let prevWasNL  = false;  // true when the immediately preceding glyph was \n
+
+    const closeWord = () => {
+      if (!curWord) return;
+      curLine.words.push(curWord);
+      curWord.glyphs.forEach(g => curLine.glyphs.push(g));
+      curWord = null; wi++;
+    };
+    const closeLine = () => {
+      curPassage.lines.push(curLine);
+      li++; curLine = makeLine(pi, li);
+    };
+    const closePassage = () => {
+      if (curPassage.lines.length) newDoc.passages.push(curPassage);
+      pi++; li = 0; wi = 0; curPassage = makePassage(pi);
+    };
+
+    for (const g of glyphs) {
+      if (g.char === '\n') {
+        closeWord();
+        curLine.glyphs.push(g);
+        g.parentWord    = null;
+        g.parentLine    = curLine;
+        g.parentPassage = curPassage;
+        closeLine();
+        if (prevWasNL) closePassage();   // blank line = new passage
+        prevWasNL = true;
+        prevY     = null;
+      } else {
+        // Detect visual line wrap: y changed without an intervening \n
+        if (prevY !== null && g.homeY !== prevY) {
+          closeWord(); closeLine(); prevWasNL = false;
+        }
+        if (g.char === ' ') {
+          closeWord();
+          curLine.glyphs.push(g);
+          g.parentWord    = null;
+          g.parentLine    = curLine;
+          g.parentPassage = curPassage;
+        } else {
+          // Regular character — open a new Word node if needed
+          if (!curWord) {
+            curWord = makeWord('', g.index, pi, li, wi);
+            curWord.startIndex = g.index;
+          }
+          curWord.text += g.char;
+          curWord.glyphs.push(g);
+          g.parentWord    = curWord;
+          g.parentLine    = curLine;
+          g.parentPassage = curPassage;
+        }
+        prevWasNL = false;
+        prevY     = g.homeY;
+      }
+    }
+
+    // Flush any open structures
+    closeWord();
+    if (curLine.glyphs.length || curLine.words.length) closeLine();
+    if (curPassage.lines.length) newDoc.passages.push(curPassage);
+
+    // Transfer node-level behaviours from the previous hierarchy to the new one
+    const newAllPassages = newDoc.passages;
+    const newAllLines    = newAllPassages.flatMap(p => p.lines);
+    const newAllWords    = newAllLines.flatMap(l => l.words);
+    transferNodeBehaviours(prevAllWords, newAllWords);
+    transferNodeBehaviours(prevAllLines, newAllLines);
+    transferNodeBehaviours(prevPassages, newAllPassages);
+
+    // Compute node home positions — pivot is justification-aware.
+    for (const word of newAllWords) {
+      if (!word.glyphs.length) continue;
+      const firstG = word.glyphs[0];
+      const lastG  = word.glyphs[word.glyphs.length - 1];
+      switch (PARAMS.justify) {
+        case 'center': word.homeX = (firstG.homeX + lastG.homeX + lastG.w) / 2; break;
+        case 'right':  word.homeX = lastG.homeX + lastG.w; break;
+        default:       word.homeX = firstG.homeX; break;   // left
+      }
+      word.homeY = firstG.homeY;
+      word.w     = (lastG.homeX + lastG.w) - firstG.homeX;
+      word.x = word.homeX; word.y = word.homeY;
+    }
+
+    for (const line of newAllLines) {
+      const vis = line.glyphs.filter(g => g.char !== ' ' && g.char !== '\n');
+      if (!vis.length) continue;
+      const firstG = vis[0];
+      const lastG  = vis[vis.length - 1];
+      switch (PARAMS.justify) {
+        case 'center': line.homeX = (firstG.homeX + lastG.homeX + lastG.w) / 2; break;
+        case 'right':  line.homeX = lastG.homeX + lastG.w; break;
+        default:       line.homeX = firstG.homeX; break;
+      }
+      line.homeY = firstG.homeY;
+      line.w     = (lastG.homeX + lastG.w) - firstG.homeX;
+      line.x = line.homeX; line.y = line.homeY;
+    }
+
+    for (const passage of newAllPassages) {
+      const vis = passage.lines.flatMap(l => l.glyphs)
+                               .filter(g => g.char !== ' ' && g.char !== '\n');
+      if (!vis.length) continue;
+      const firstG = vis[0];
+      const lastG  = vis[vis.length - 1];
+      switch (PARAMS.justify) {
+        case 'center': passage.homeX = (firstG.homeX + lastG.homeX + lastG.w) / 2; break;
+        case 'right':  passage.homeX = lastG.homeX + lastG.w; break;
+        default:       passage.homeX = firstG.homeX; break;
+      }
+      passage.homeY = firstG.homeY;
+      passage.w     = (lastG.homeX + lastG.w) - firstG.homeX;
+      passage.x = passage.homeX; passage.y = passage.homeY;
+    }
+
+    docModel = newDoc;
+  }
+
   AgentEngine.pruneTimers();
-  // Re-sync selected glyph references — layout rebuilds the array but transferGlyph preserves ids.
-  selectedGlyphs = glyphs.filter(g => selectedIds.has(g.id));
+
+  // Rebuild stale bezier paths — only for glyphs already in bezier mode.
+  // Triggered when font-size changes (fontPt mismatch) after font is loaded.
+  if (otFont) {
+    for (const g of glyphs) {
+      if (g.geometry.type !== 'outline2d-bezier') continue;
+      const pt = g.material.fontPt || PARAMS.fontPt;
+      if (g.geometry.data?.fontPt !== pt) {
+        g.geometry = { type: 'outline2d-bezier', data: _makeBezierData(g.char, pt) };
+      }
+    }
+  }
+
+  // Re-sync selected node and glyph references after layout rebuild.
+  // Node objects are replaced each layout; re-look-up by id.
+  if (selectedNode) {
+    if (selectedNode.char !== undefined) {
+      // Glyph — find by id in new glyphs array (transferGlyph preserves the id)
+      selectedNode = glyphs.find(g => g.id === selectedNode.id) ?? null;
+    } else {
+      // Word / Line / Passage — find by id in new hierarchy
+      const allNodes = docModel ? [
+        ...docModel.passages,
+        ...docModel.passages.flatMap(p => p.lines),
+        ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+      ] : [];
+      selectedNode = allNodes.find(n => n.id === selectedNode.id) ?? null;
+    }
+    selectedGlyphs = leafGlyphsOf(selectedNode);
+    selectedIds    = new Set(selectedGlyphs.map(g => g.id));
+  } else {
+    selectedGlyphs = glyphs.filter(g => selectedIds.has(g.id));
+  }
   if (editorMode === 'select') {
     updateBehaviourPanel();
     updateGeometryPanel();
@@ -1266,16 +1783,54 @@ const AgentEngine = (() => {
       _outbox.length = 0;
     }
 
-    // Phase 5 — Tick behaviours.
-    // Snapshot g.behaviours so behaviours injected this frame don't run until next frame.
-    for (const g of glyphs) {
-      const insts = g.behaviours.slice();
-      for (const inst of insts) {
-        inst.type.apply(g, dt, bCtx, inst.params);
+    // Phase 5A — tick node-level behaviours (cascade === false) directly on nodes.
+    // allNodes is computed once here and reused in Phase 6A.
+    const allNodes = docModel ? [
+      ...docModel.passages,
+      ...docModel.passages.flatMap(p => p.lines),
+      ...docModel.passages.flatMap(p => p.lines.flatMap(l => l.words)),
+    ] : [];
+    for (const node of allNodes) {
+      for (const inst of node.behaviours.slice()) {
+        if (inst.cascade === false)
+          inst.type.apply(node, dt, bCtx, inst.params);
       }
     }
 
-    // Phase 6 — Dynamics integration + damping (v1 unchanged)
+    // Phase 5B — cascade behaviours (cascade !== false) to glyphs, then glyph-own behaviours.
+    // Ancestor behaviours run in Passage → Line → Word order. Snapshots prevent
+    // mid-frame mutations from running until the next frame.
+    for (const g of glyphs) {
+      if (g.char === ' ' || g.char === '\n') continue;
+      for (const node of [g.parentPassage, g.parentLine, g.parentWord]) {
+        if (!node) continue;
+        for (const inst of node.behaviours.slice())
+          if (inst.cascade !== false) inst.type.apply(g, dt, bCtx, inst.params);
+      }
+      for (const inst of g.behaviours.slice())
+        inst.type.apply(g, dt, bCtx, inst.params);
+    }
+
+    // Phase 6A — dynamics integration + damping for hierarchy nodes.
+    // If a node has no cascade:false behaviours it has no unit-transform of its own;
+    // snap it back to home so removing behaviours always leaves glyphs in place.
+    for (const node of allNodes) {
+      if (!node.behaviours.some(b => b.cascade === false)) {
+        node.x = node.homeX; node.y = node.homeY;
+        node.rotation = 0;   node.scale = 1;
+        node.dynamics.vx = 0; node.dynamics.vy = 0; node.dynamics.angularVel = 0;
+        continue;
+      }
+      const d = node.dynamics;
+      node.x        += d.vx         * dt;
+      node.y        += d.vy         * dt;
+      node.rotation += d.angularVel * dt;
+      d.vx          *= d.damping;
+      d.vy          *= d.damping;
+      d.angularVel  *= d.damping;
+    }
+
+    // Phase 6B — dynamics integration + damping for glyphs (unchanged).
     for (const g of glyphs) {
       const d = g.dynamics;
       g.x        += d.vx         * dt;
@@ -1436,11 +1991,55 @@ function nearestGlyph(mx, my) {
   return best;
 }
 
-function selectGlyphs(gs) {
+// Returns all visible (non-space, non-newline) leaf glyphs under a hierarchy node.
+function leafGlyphsOf(node) {
+  if (!node) return [];
+  if (node.char !== undefined) {
+    // Glyph — return itself if printable
+    return (node.char !== ' ' && node.char !== '\n') ? [node] : [];
+  }
+  if (node.words !== undefined) {
+    // Line — has .glyphs[] flat-packed by Stage B
+    return node.glyphs.filter(g => g.char !== ' ' && g.char !== '\n');
+  }
+  if (node.lines !== undefined) {
+    // Passage — flatten across lines
+    return node.lines.flatMap(l => l.glyphs).filter(g => g.char !== ' ' && g.char !== '\n');
+  }
+  if (node.glyphs !== undefined) {
+    // Word — has .glyphs[]
+    return node.glyphs.filter(g => g.char !== ' ' && g.char !== '\n');
+  }
+  return [];
+}
+
+// Returns a short human-readable label for a hierarchy node.
+function nodeTypeLabel(node) {
+  if (!node) return '';
+  if (node.char  !== undefined) return `Glyph: "${node.char}"`;
+  if (node.words !== undefined) return `Line`;      // Line has .words[]
+  if (node.lines !== undefined) return `Passage`;   // Passage has .lines[]
+  return `Word: "${node.text}"`;                    // Word has only .glyphs[]
+}
+
+// Select a hierarchy node. Derives selectedGlyphs and selectedIds from it.
+function selectNode(node) {
+  selectedNode   = node;
+  const gs       = leafGlyphsOf(node);
   selectedGlyphs = gs;
   selectedIds    = new Set(gs.map(g => g.id));
   updateBehaviourPanel();
   updateGeometryPanel();
+  FontToolbar.syncFontToolbar(_toolbarP);
+}
+
+function selectGlyphs(gs) {
+  selectedNode   = null;   // clear hierarchy selection when setting glyphs directly
+  selectedGlyphs = gs;
+  selectedIds    = new Set(gs.map(g => g.id));
+  updateBehaviourPanel();
+  updateGeometryPanel();
+  FontToolbar.syncFontToolbar(_toolbarP);  // reflect selected glyph's per-glyph style
 }
 
 function selectWord(g) {
@@ -1495,58 +2094,100 @@ function setEditorMode(mode) {
   if (sp) sp.style.display = mode === 'select' ? 'block' : 'none';
   document.querySelectorAll('.mbtn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   if (mode === 'type') {
-    selectGlyphs([]);
+    selectNode(null);
   } else {
     anchorPos = cursorPos; // collapse any type-mode text selection
     // Pre-select the glyph adjacent to the cursor so the user can immediately
-    // add behaviours after clicking near a letter in Type mode.
-    if (selectedGlyphs.length === 0) {
+    // add behaviours after switching to Select mode.
+    if (!selectedNode) {
       const g = glyphs.find(g => g.index === cursorPos - 1 && g.char !== '\n' && g.char !== ' ')
              || glyphs.find(g => g.index === cursorPos     && g.char !== '\n' && g.char !== ' ');
-      if (g) selectGlyphs([g]);
+      if (g) selectNode(g);
     }
   }
 }
 
 function addBehaviour(defKey) {
+  if (!selectedNode) return;
   const def = BEHAVIOUR_DEFS.find(d => d.key === defKey);
-  if (!def || selectedGlyphs.length === 0) return;
+  if (!def) return;
   pushUndo();
-  const inst = { type: def.type, params: def.params.reduce((o, p) => ({ ...o, [p.key]: p.default }), {}) };
-  for (const g of selectedGlyphs) g.behaviours.push(inst);
+  const inst = {
+    type:    def.type,
+    params:  def.params.reduce((o, p) => ({ ...o, [p.key]: p.default }), {}),
+    cascade: true,   // default: cascade to child glyphs; user can toggle to false (Unit)
+  };
+  selectedNode.behaviours.push(inst);
   updateBehaviourPanel();
 }
 
 function removeBehaviourAtIndex(idx) {
+  if (!selectedNode) return;
   pushUndo();
-  for (const g of selectedGlyphs) g.behaviours.splice(idx, 1);
+  selectedNode.behaviours.splice(idx, 1);
+  updateBehaviourPanel();
+}
+
+function toggleCascadeAtIndex(idx) {
+  if (!selectedNode) return;
+  const inst = selectedNode.behaviours[idx];
+  if (!inst) return;
+  inst.cascade = (inst.cascade === false) ? true : false;
   updateBehaviourPanel();
 }
 
 function updateBehaviourPanel() {
   const panel = document.getElementById('bPanel');
   if (!panel) return;
-  if (selectedGlyphs.length === 0) {
-    panel.innerHTML = '<div class="bph-empty">No glyphs selected.<br>Click a glyph to select it.</div>';
+
+  // Update the level indicator
+  const selLevelEl = document.getElementById('selLevel');
+  if (selLevelEl) selLevelEl.textContent = selectedNode ? nodeTypeLabel(selectedNode) : '';
+
+  // Geometry and Agent sub-panels are glyph-level only — hide for non-glyph nodes.
+  const isGlyph = selectedNode?.char !== undefined;
+  const geoSectionEl = document.querySelector('.section-label[data-section="geo"]');
+  const geoPanelEl   = document.getElementById('geoPanel');
+  const agentPanelEl = document.getElementById('agentPanel');
+  const agentSectionEl = document.querySelector('.section-label[data-section="agent"]');
+  if (geoSectionEl)   geoSectionEl.style.display   = isGlyph ? '' : 'none';
+  if (geoPanelEl)     geoPanelEl.style.display      = isGlyph ? '' : 'none';
+  if (agentSectionEl) agentSectionEl.style.display  = isGlyph ? '' : 'none';
+  if (agentPanelEl)   agentPanelEl.style.display    = isGlyph ? '' : 'none';
+
+  if (!selectedNode) {
+    panel.innerHTML = '<div class="bph-empty">No node selected.<br>Click a glyph to select it.</div>';
     return;
   }
-  const lbl  = selectedGlyphs.length === 1
-    ? `"${selectedGlyphs[0].char}" selected`
-    : `${selectedGlyphs.length} glyphs selected`;
-  const behs = selectedGlyphs[0].behaviours;
-  let html = `<div class="bph-sel-label">${lbl}</div>`;
-  // SM state readout — updated live each frame via #smStateDisplay in the render loop
-  if (selectedGlyphs[0].stateMachine) {
-    const stateNow = selectedGlyphs[0].stateMachine.currentState();
-    html = `<div style="font-size:10px;color:#666;margin-bottom:4px">state: <span id="smStateDisplay" style="color:#7af">${stateNow}</span></div>` + html;
+
+  const behs = selectedNode.behaviours;
+  let html = '';
+
+  // SM state readout — only relevant for Glyph nodes with a state machine.
+  if (isGlyph && selectedNode.stateMachine) {
+    const stateNow = selectedNode.stateMachine.currentState();
+    html += `<div style="font-size:10px;color:#666;margin-bottom:4px">state: <span id="smStateDisplay" style="color:#7af">${stateNow}</span></div>`;
   }
+
+  if (behs.length === 0) {
+    html += `<div class="bph-empty">No behaviours.<br>Add one below.</div>`;
+  }
+
   for (let i = 0; i < behs.length; i++) {
-    const inst = behs[i];
-    const def  = BEHAVIOUR_DEFS.find(d => d.type === inst.type);
+    const inst   = behs[i];
+    const def    = BEHAVIOUR_DEFS.find(d => d.type === inst.type);
     if (!def) continue;
+    const isUnit = inst.cascade === false;
     html += `<div class="bph-behaviour">`;
-    html += `<div class="bph-beh-header"><span class="bph-beh-label">${def.label}</span>`;
-    html += `<button class="bph-beh-remove" data-idx="${i}">✕</button></div>`;
+    html += `<div class="bph-beh-header">`;
+    html += `<span class="bph-beh-label">${def.label}</span>`;
+    html += `<span style="display:flex;align-items:center">`;
+    // Cascade toggle — only meaningful on non-glyph nodes.
+    if (!isGlyph) {
+      html += `<button class="bph-cascade-btn${isUnit ? ' unit-mode' : ''}" data-idx="${i}">${isUnit ? 'Unit' : 'Cascade'}</button>`;
+    }
+    html += `<button class="bph-beh-remove" data-idx="${i}">✕</button>`;
+    html += `</span></div>`;
     for (const pd of def.params) {
       const v = inst.params[pd.key];
       html += `<div class="param-row" style="padding-left:10px">`;
@@ -1558,14 +2199,21 @@ function updateBehaviourPanel() {
     }
     html += `</div>`;
   }
+
   panel.innerHTML = html;
+
   panel.querySelectorAll('.bph-beh-remove').forEach(btn => {
     btn.addEventListener('click', () => removeBehaviourAtIndex(+btn.dataset.idx));
   });
+
+  panel.querySelectorAll('.bph-cascade-btn').forEach(btn => {
+    btn.addEventListener('click', () => toggleCascadeAtIndex(+btn.dataset.idx));
+  });
+
   panel.querySelectorAll('.bph-slider').forEach(sl => {
     sl.addEventListener('input', () => {
       const bidx = +sl.dataset.bidx, pk = sl.dataset.pk, v = parseFloat(sl.value);
-      for (const g of selectedGlyphs) { if (g.behaviours[bidx]) g.behaviours[bidx].params[pk] = v; }
+      if (selectedNode?.behaviours[bidx]) selectedNode.behaviours[bidx].params[pk] = v;
       const valEl = panel.querySelector(`.bph-pval[data-bidx="${bidx}"][data-pk="${pk}"]`);
       if (valEl) valEl.textContent = `${v} ${sl.dataset.sfx}`;
     });
@@ -1585,6 +2233,112 @@ const DEFAULT_PARTICLE_PARAMS = {
   outside:       0,     // 0 = fully contained, 100 = freely wanders outside (÷100 when used)
   // perception/separation/alignment/cohesion live on the ParticleFlocking Behaviour
 };
+
+// Build a Path2D + raw commands from the loaded opentype font for one character.
+// Returns { path: Path2D, commands: [] } or null if char is not renderable.
+function buildCharPath(char, fontPt) {
+  if (!otFont || char === ' ' || char === '\n') return null;
+  const otPath = otFont.getPath(char, 0, 0, fontPt);
+  const d = otPath.toPathData(3);
+  if (!d) return null;
+  return { path: new Path2D(d), commands: otPath.commands };
+}
+
+// Convenience: build the full geometry.data object for outline2d-bezier.
+// Always returns a plain object (path/commands will be null/[] if char not renderable).
+function _makeBezierData(char, pt) {
+  const r = buildCharPath(char, pt);
+  return { path: r ? r.path : null, commands: r ? r.commands : [], fontPt: pt };
+}
+
+// ── Bezier handle debug overlay ────────────────────────────────────────────────
+// Draws anchor points (white squares) and control handles (cyan circles + lines)
+// for every outline2d-bezier glyph when showBezierHandles is true.
+// Mirrors the same transform logic as the bezier render branch.
+function drawBezierHandles(g) {
+  const data = g.geometry.data;
+  if (!data || !data.commands || data.commands.length === 0) return;
+  const gFontPt      = g.material.fontPt || PARAMS.fontPt;
+  const needsCompose = hasNodeTransform(g.parentPassage)
+                    || hasNodeTransform(g.parentLine)
+                    || hasNodeTransform(g.parentWord);
+  const needsGlyph   = g.rotation !== 0 || g.scale !== 1;
+
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  if (needsCompose || needsGlyph) {
+    applyNodeTransform(g.parentPassage);
+    applyNodeTransform(g.parentLine);
+    applyNodeTransform(g.parentWord);
+    const cx = g.x + g.w * 0.5;
+    const cy = g.y - gFontPt * 0.4;
+    ctx.translate(cx, cy);
+    if (needsGlyph) {
+      if (g.rotation !== 0) ctx.rotate(g.rotation);
+      if (g.scale    !== 1) ctx.scale(g.scale, g.scale);
+    }
+    ctx.translate(-g.w * 0.5, gFontPt * 0.4);   // baseline-left
+  } else {
+    ctx.translate(g.x, g.y);
+  }
+
+  let prevX = 0, prevY = 0;
+  for (const cmd of data.commands) {
+    if (cmd.type === 'M') {
+      _dbgAnchor(cmd.x, cmd.y);
+      prevX = cmd.x; prevY = cmd.y;
+    } else if (cmd.type === 'L') {
+      _dbgAnchor(cmd.x, cmd.y);
+      prevX = cmd.x; prevY = cmd.y;
+    } else if (cmd.type === 'C') {
+      // Handle stems
+      ctx.strokeStyle = 'rgba(0,210,255,0.55)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(prevX, prevY); ctx.lineTo(cmd.x1, cmd.y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cmd.x,  cmd.y); ctx.lineTo(cmd.x2, cmd.y2); ctx.stroke();
+      _dbgHandle(cmd.x1, cmd.y1);
+      _dbgHandle(cmd.x2, cmd.y2);
+      _dbgAnchor(cmd.x, cmd.y);
+      prevX = cmd.x; prevY = cmd.y;
+    } else if (cmd.type === 'Q') {
+      ctx.strokeStyle = 'rgba(0,210,255,0.55)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(prevX, prevY); ctx.lineTo(cmd.x1, cmd.y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cmd.x,  cmd.y); ctx.lineTo(cmd.x1, cmd.y1); ctx.stroke();
+      _dbgHandle(cmd.x1, cmd.y1);
+      _dbgAnchor(cmd.x, cmd.y);
+      prevX = cmd.x; prevY = cmd.y;
+    }
+    // Z (close) — no point to draw
+  }
+
+  ctx.restore();
+}
+
+function _dbgAnchor(x, y) {
+  // On-curve anchor: solid white square
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - 2, y - 2, 4, 4);
+}
+
+function _dbgHandle(x, y) {
+  // Off-curve handle: cyan hollow circle
+  ctx.strokeStyle = '#0cf'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.stroke();
+}
+
+// Load an opentype font file, parse it, and switch all existing glyphs to bezier.
+async function loadOTFontFile(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    otFont = opentype.parse(buf);
+  } catch (e) {
+    console.error('opentype.js: failed to parse font:', e);
+    return;
+  }
+  const lbl = document.getElementById('otFontLabel');
+  if (lbl) lbl.textContent = file.name.replace(/\.[^.]+$/, '');
+}
 
 // Build (or rebuild) the particle data for a glyph.
 // Safe to call multiple times; replaces g.geometry.data in-place.
@@ -1842,6 +2596,10 @@ function switchGeometryType(geoType) {
         g.geometry = { type: 'particles', params: { ...DEFAULT_PARTICLE_PARAMS }, data: null };
         buildParticleGeometry(g);
       }
+    } else if (geoType === 'outline2d-bezier') {
+      if (!otFont) { alert('Load a .ttf/.otf font file first (Type section → Font file).'); return; }
+      const pt = g.material.fontPt || PARAMS.fontPt;
+      g.geometry = { type: 'outline2d-bezier', data: _makeBezierData(g.char, pt) };
     } else {
       g.geometry = { type: 'outline2d' };
     }
@@ -1853,18 +2611,28 @@ function updateGeometryPanel() {
   const panel = document.getElementById('geoPanel');
   if (!panel) return;
 
-  if (selectedGlyphs.length === 0) {
+  // Geometry is glyph-level only; non-glyph nodes have no geometry of their own.
+  if (!selectedNode || selectedNode.char === undefined || selectedGlyphs.length === 0) {
     panel.innerHTML = '';
     return;
   }
 
   const g0     = selectedGlyphs[0];
+  const isBez  = g0.geometry.type === 'outline2d-bezier';
   const isPart = g0.geometry.type === 'particles';
 
   let html = `<div class="btn-group">`;
-  html += `<button class="jbtn geo-type-btn ${!isPart ? 'active' : ''}" data-geo="outline2d">Outline</button>`;
-  html += `<button class="jbtn geo-type-btn ${isPart  ? 'active' : ''}" data-geo="particles">Particles</button>`;
+  html += `<button class="jbtn geo-type-btn ${(!isPart && !isBez) ? 'active' : ''}" data-geo="outline2d">Outline</button>`;
+  html += `<button class="jbtn geo-type-btn ${isBez  ? 'active' : ''}" data-geo="outline2d-bezier">Bezier</button>`;
+  html += `<button class="jbtn geo-type-btn ${isPart ? 'active' : ''}" data-geo="particles">Particles</button>`;
   html += `</div>`;
+
+  if (isBez) {
+    html += `<div class="color-row" style="margin-top:6px">`;
+    html += `<label style="font-size:11px;color:#888">Show handles</label>`;
+    html += `<input type="checkbox" id="bezHandlesChk" ${showBezierHandles ? 'checked' : ''}>`;
+    html += `</div>`;
+  }
 
   if (isPart) {
     const pp = g0.geometry.params;
@@ -1920,6 +2688,11 @@ function updateGeometryPanel() {
         if (g.geometry.type === 'particles') buildParticleGeometry(g);
       }
     });
+  }
+
+  if (isBez) {
+    const chk = panel.querySelector('#bezHandlesChk');
+    if (chk) chk.addEventListener('change', () => { showBezierHandles = chk.checked; });
   }
 }
 
@@ -2009,6 +2782,24 @@ function cursorBaseline() {
   return { x: justifyX(0), y: MARGIN + PARAMS.fontPt };
 }
 
+// ── Node transform helpers ─────────────────────────────────────────────────────
+// Returns true if node has moved/rotated/scaled from its typographic home.
+function hasNodeTransform(node) {
+  return !!node && (node.x !== node.homeX || node.y !== node.homeY
+                 || node.rotation !== 0   || node.scale !== 1);
+}
+
+// Apply a rotate-around-pivot transform for a hierarchy node.
+// No-op if the node hasn't moved, so the common (idle) case costs nothing.
+function applyNodeTransform(node) {
+  if (!hasNodeTransform(node)) return;
+  const dx = node.x - node.homeX, dy = node.y - node.homeY;
+  ctx.translate(node.homeX + dx, node.homeY + dy);
+  if (node.rotation !== 0) ctx.rotate(node.rotation);
+  if (node.scale    !== 1) ctx.scale(node.scale, node.scale);
+  ctx.translate(-node.homeX, -node.homeY);
+}
+
 // ── Cursor blink ───────────────────────────────────────────────────────────────
 let cursorOn  = true;
 let lastBlink = 0;
@@ -2092,15 +2883,118 @@ function loop(ts) {
       continue;
     }
 
+    // ── Outline2d-bezier geometry path ──────────────────────────────────────
+    if (g.geometry.type === 'outline2d-bezier') {
+      const p2d = g.geometry.data?.path;
+      if (!p2d) continue;   // char not in font — skip silently
+
+      const gFontPt      = m.fontPt      || PARAMS.fontPt;
+      const gFillOn      = m.fillOn      ?? PARAMS.fillOn;
+      const gStrokeOn    = m.strokeOn    ?? PARAMS.strokeOn;
+      const gFillColor   = m.fill        || PARAMS.fillColor;
+      const gStrokeColor = m.strokeColor || PARAMS.strokeColor;
+      const gStrokeWidth = m.strokeWidth ?? PARAMS.strokeWidth;
+
+      const needsCompose = hasNodeTransform(g.parentPassage)
+                        || hasNodeTransform(g.parentLine)
+                        || hasNodeTransform(g.parentWord);
+      const needsGlyph   = g.rotation !== 0 || g.scale !== 1;
+
+      if (needsCompose || needsGlyph) {
+        ctx.save();
+        applyNodeTransform(g.parentPassage);
+        applyNodeTransform(g.parentLine);
+        applyNodeTransform(g.parentWord);
+        const cx = g.x + g.w * 0.5;
+        const cy = g.y - gFontPt * 0.4;
+        ctx.translate(cx, cy);
+        if (needsGlyph) {
+          if (g.rotation !== 0) ctx.rotate(g.rotation);
+          if (g.scale    !== 1) ctx.scale(g.scale, g.scale);
+        }
+        const r = [-g.w * 0.5 - 2, -gFontPt * 0.45, g.w + 4, gFontPt];
+        ctx.globalCompositeOperation = 'source-over';
+        if (isSelected) {
+          ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
+          ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+        } else if (isInRange) {
+          ctx.fillStyle = '#5ce'; ctx.globalAlpha = 0.4; ctx.fillRect(...r);
+        } else if (isTarget) {
+          ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+        } else if (isHovered) {
+          ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+          ctx.strokeStyle = '#7af'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.strokeRect(...r);
+        }
+        ctx.globalAlpha              = m.opacity;
+        ctx.globalCompositeOperation = m.blendMode;
+        // Shift from visual-centre pivot back to baseline-left for Path2D origin.
+        ctx.translate(-g.w * 0.5, gFontPt * 0.4);
+        if (gStrokeOn) { ctx.strokeStyle = gStrokeColor; ctx.lineWidth = gStrokeWidth; ctx.stroke(p2d); }
+        if (gFillOn)   { ctx.fillStyle = gFillColor; ctx.fill(p2d); }
+        ctx.restore();
+      } else {
+        // Fast path — no transforms.
+        const r = [g.x - 2, g.y - gFontPt * 0.85, g.w + 4, gFontPt];
+        ctx.globalCompositeOperation = 'source-over';
+        if (isSelected) {
+          ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
+          ctx.strokeStyle = '#fa7'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.strokeRect(...r);
+        } else if (isInRange) {
+          ctx.fillStyle = '#5ce'; ctx.globalAlpha = 0.4; ctx.fillRect(...r);
+        } else if (isTarget) {
+          ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+        } else if (isHovered) {
+          ctx.fillStyle = '#7af'; ctx.globalAlpha = 0.25; ctx.fillRect(...r);
+          ctx.strokeStyle = '#7af'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.strokeRect(...r);
+        }
+        ctx.globalAlpha              = m.opacity;
+        ctx.globalCompositeOperation = m.blendMode;
+        ctx.save();
+        // Translate to baseline-left (Path2D origin is at (0,0) = baseline-left).
+        ctx.translate(g.x, g.y);
+        if (gStrokeOn) { ctx.strokeStyle = gStrokeColor; ctx.lineWidth = gStrokeWidth; ctx.stroke(p2d); }
+        if (gFillOn)   { ctx.fillStyle = gFillColor; ctx.fill(p2d); }
+        ctx.restore();
+      }
+      continue;
+    }
+
     // ── Outline2d geometry path ─────────────────────────────────────────────
-    if (g.rotation !== 0 || g.scale !== 1) {
-      const cx = g.x + g.w * 0.5;
-      const cy = g.y - PARAMS.fontPt * 0.4;
+    // Per-glyph style — material overrides PARAMS, preview overrides font family.
+    // Extracted before the branch so gFontPt is available to both paths.
+    const gFontPt      = m.fontPt      || PARAMS.fontPt;
+    const gFontFamily  = (isSelected || isInRange) && _previewFont
+                         ? _previewFont : (m.fontFamily || PARAMS.fontFamily);
+    const gFillOn      = m.fillOn      ?? PARAMS.fillOn;
+    const gStrokeOn    = m.strokeOn    ?? PARAMS.strokeOn;
+    const gFillColor   = m.fill        || PARAMS.fillColor;
+    const gStrokeColor = m.strokeColor || PARAMS.strokeColor;
+    const gStrokeWidth = m.strokeWidth ?? PARAMS.strokeWidth;
+
+    // needsCompose: any ancestor node has moved/rotated/scaled from home.
+    // needsGlyph:   this glyph itself has rotation or scale.
+    const needsCompose = hasNodeTransform(g.parentPassage)
+                      || hasNodeTransform(g.parentLine)
+                      || hasNodeTransform(g.parentWord);
+    const needsGlyph   = g.rotation !== 0 || g.scale !== 1;
+
+    if (needsCompose || needsGlyph) {
       ctx.save();
+      // Outer: ancestor transforms (passage → line → word), each around its own pivot.
+      applyNodeTransform(g.parentPassage);
+      applyNodeTransform(g.parentLine);
+      applyNodeTransform(g.parentWord);
+      // Inner: glyph rotation/scale around its visual centre.
+      const cx = g.x + g.w * 0.5;
+      const cy = g.y - gFontPt * 0.4;
       ctx.translate(cx, cy);
-      if (g.rotation !== 0) ctx.rotate(g.rotation);
-      if (g.scale   !== 1) ctx.scale(g.scale, g.scale);
-      const r = [-g.w * 0.5 - 2, -PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
+      if (needsGlyph) {
+        if (g.rotation !== 0) ctx.rotate(g.rotation);
+        if (g.scale    !== 1) ctx.scale(g.scale, g.scale);
+      }
+      // Highlight rect — in translate space centred at cy = g.y - gFontPt*0.4,
+      // so top of glyph is at -(0.85 - 0.4) = -0.45, not -0.85.
+      const r = [-g.w * 0.5 - 2, -gFontPt * 0.45, g.w + 4, gFontPt];
       ctx.globalCompositeOperation = 'source-over';
       if (isSelected) {
         ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
@@ -2115,18 +3009,20 @@ function loop(ts) {
       }
       ctx.globalAlpha              = m.opacity;
       ctx.globalCompositeOperation = m.blendMode;
-      if (PARAMS.strokeOn) {
-        ctx.strokeStyle = PARAMS.strokeColor;
-        ctx.lineWidth   = PARAMS.strokeWidth;
-        ctx.strokeText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      ctx.font = `${gFontPt}px "${gFontFamily}", serif`;
+      if (gStrokeOn) {
+        ctx.strokeStyle = gStrokeColor;
+        ctx.lineWidth   = gStrokeWidth;
+        ctx.strokeText(g.char, -g.w * 0.5, gFontPt * 0.4);
       }
-      if (PARAMS.fillOn) {
-        ctx.fillStyle = m.fill || PARAMS.fillColor;
-        ctx.fillText(g.char, -g.w * 0.5, PARAMS.fontPt * 0.4);
+      if (gFillOn) {
+        ctx.fillStyle = gFillColor;
+        ctx.fillText(g.char, -g.w * 0.5, gFontPt * 0.4);
       }
       ctx.restore();
     } else {
-      const r = [g.x - 2, g.y - PARAMS.fontPt * 0.85, g.w + 4, PARAMS.fontPt];
+      // Fast path — no transforms anywhere (most glyphs most of the time).
+      const r = [g.x - 2, g.y - gFontPt * 0.85, g.w + 4, gFontPt];
       ctx.globalCompositeOperation = 'source-over';
       if (isSelected) {
         ctx.fillStyle = '#fa7'; ctx.globalAlpha = 0.3; ctx.fillRect(...r);
@@ -2141,13 +3037,14 @@ function loop(ts) {
       }
       ctx.globalAlpha              = m.opacity;
       ctx.globalCompositeOperation = m.blendMode;
-      if (PARAMS.strokeOn) {
-        ctx.strokeStyle = PARAMS.strokeColor;
-        ctx.lineWidth   = PARAMS.strokeWidth;
+      ctx.font = `${gFontPt}px "${gFontFamily}", serif`;
+      if (gStrokeOn) {
+        ctx.strokeStyle = gStrokeColor;
+        ctx.lineWidth   = gStrokeWidth;
         ctx.strokeText(g.char, g.x, g.y);
       }
-      if (PARAMS.fillOn) {
-        ctx.fillStyle = m.fill || PARAMS.fillColor;
+      if (gFillOn) {
+        ctx.fillStyle = gFillColor;
         ctx.fillText(g.char, g.x, g.y);
       }
     }
@@ -2155,6 +3052,13 @@ function loop(ts) {
 
   ctx.globalAlpha              = 1;
   ctx.globalCompositeOperation = 'source-over';
+
+  // Bezier handle debug overlay (all bezier glyphs, drawn on top of fills)
+  if (showBezierHandles) {
+    for (const g of glyphs) {
+      if (g.geometry.type === 'outline2d-bezier') drawBezierHandles(g);
+    }
+  }
 
   // Cursor (type mode only)
   if (editorMode === 'type' && document.activeElement === canvas && cursorOn) {
@@ -2179,10 +3083,10 @@ function loop(ts) {
   ctx.strokeRect(0.75, 0.75, W - 1.5, H - 1.5);
 
   // Live SM state display — updated every frame when in select mode
-  if (editorMode === 'select' && selectedGlyphs.length > 0) {
+  if (editorMode === 'select' && selectedNode?.char !== undefined) {
     const el = document.getElementById('smStateDisplay');
     if (el) {
-      const sm = selectedGlyphs[0].stateMachine;
+      const sm = selectedNode.stateMachine;
       el.textContent = sm ? sm.currentState() : '—';
     }
   }
@@ -2401,11 +3305,12 @@ let _clickTimer  = null;
 const MULTI_CLICK_MS = 350;
 
 // ── Drag state ─────────────────────────────────────────────────────────────────
-let _dragActive  = false;
-let _dragLastX   = 0;
-let _dragLastY   = 0;
-let _didDrag     = false;   // suppresses the click event that follows a drag
-const DRAG_THRESHOLD = 4;   // px of movement before drag is committed
+let _dragActive   = false;
+let _dragLastX    = 0;
+let _dragLastY    = 0;
+let _didDrag      = false;    // suppresses the click event that follows a drag
+let _preDragSnap  = null;     // snapshot captured at drag start, committed on mouseup
+const DRAG_THRESHOLD = 4;     // px of movement before drag is committed
 
 canvas.addEventListener('click', e => {
   canvas.focus();
@@ -2428,23 +3333,35 @@ canvas.addEventListener('click', e => {
                   my >= _clickAnchor.y - h * 0.85 - pad && my <= _clickAnchor.y + h * 0.15 + pad;
       if (!hit) _clickAnchor = null;
     }
-    // Blank-canvas click in Type mode: move layout origin to click point.
-    if (!_clickAnchor && editorMode === 'type') {
+    // Blank-canvas click in Type mode with nothing selected: move layout origin.
+    // Guard selectedGlyphs so a deselect-click after a drag doesn't reposition text.
+    if (!_clickAnchor && editorMode === 'type' && selectedGlyphs.length === 0) {
       layoutOriginX = Math.max(MARGIN * 0.5, Math.min(mx, W - MARGIN));
       layoutOriginY = Math.max(PARAMS.fontPt, Math.min(my, H - PARAMS.fontPt * 0.3));
       layout();
     }
-    selectGlyphs(_clickAnchor ? [_clickAnchor] : []);
-    // Also position the text cursor in Type mode.
-    if (editorMode === 'type') {
+    if (editorMode === 'select') {
+      selectNode(_clickAnchor || null);
+    } else {
+      selectGlyphs(_clickAnchor ? [_clickAnchor] : []);
       cursorPos = anchorPos = _clickAnchor ? _clickAnchor.index + 1 : docText.length;
     }
   } else if (_clickCount === 2) {
-    if (_clickAnchor) selectWord(_clickAnchor);
+    if (_clickAnchor) {
+      if (editorMode === 'select') selectNode(_clickAnchor.parentWord ?? _clickAnchor);
+      else selectWord(_clickAnchor);
+    }
   } else if (_clickCount === 3) {
-    if (_clickAnchor) selectSentenceOrLine(_clickAnchor);
+    if (_clickAnchor) {
+      if (editorMode === 'select') selectNode(_clickAnchor.parentLine ?? _clickAnchor);
+      else selectSentenceOrLine(_clickAnchor);
+    }
   } else {
-    selectGlyphs(glyphs.filter(h => h.char !== '\n' && h.char !== ' '));
+    if (editorMode === 'select') {
+      if (_clickAnchor) selectNode(_clickAnchor.parentPassage ?? _clickAnchor);
+    } else {
+      selectGlyphs(glyphs.filter(h => h.char !== '\n' && h.char !== ' '));
+    }
     _clickCount = 0;
     resetBlink();
     return;
@@ -2498,43 +3415,94 @@ canvas.addEventListener('mousedown', e => {
     const mx = e.clientX - r.left;
     const my = e.clientY - r.top;
     if (overSelectedGlyphs(mx, my)) {
-      pushUndo();
-      _dragActive = true;
-      _dragLastX  = mx;
-      _dragLastY  = my;
-      _didDrag    = false;
+      // Capture pre-drag state with positions — only pushed to undo stack if drag occurs.
+      _preDragSnap = captureSnapshot(true);
+      _dragActive  = true;
+      _dragLastX   = mx;
+      _dragLastY   = my;
+      _didDrag     = false;
     }
   }
 });
 canvas.addEventListener('mouseup', () => {
   inputState.down = false;
-  _dragActive = false;
+  if (_didDrag && _preDragSnap) {
+    // Drag actually happened — commit the pre-drag snapshot as an undo entry.
+    undoStack.push(_preDragSnap);
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack.length = 0;
+  }
+  _preDragSnap = null;
+  _dragActive  = false;
   canvas.style.cursor = editorMode === 'type' ? 'text' : 'default';
 });
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────────
-const FONTS = [
-  'Gill Sans', 'Baskerville', 'Didot', 'Futura', 'Garamond',
-  'Georgia', 'Helvetica Neue', 'Optima', 'Palatino',
-  'Times New Roman', 'Courier New', 'American Typewriter',
+// System fonts (assumed pre-installed; no network load needed)
+const SYSTEM_FONTS = [
+  'American Typewriter', 'Baskerville', 'Courier New', 'Didot',
+  'Futura', 'Garamond', 'Georgia', 'Gill Sans', 'Helvetica Neue',
+  'Optima', 'Palatino', 'Times New Roman', 'Trebuchet MS', 'Verdana',
 ];
 
-// Adapter: font-toolbar.js expects P.font / P.size; Glyphkicker uses fontFamily / fontPt
+// Google Fonts — loaded on demand via the Fonts API
+const GOOGLE_FONTS = [
+  // Serif
+  'Cormorant Garamond', 'EB Garamond', 'Libre Baskerville', 'Lora',
+  'Merriweather', 'Playfair Display',
+  // Sans-serif
+  'Inter', 'Lato', 'Nunito', 'Open Sans', 'Oswald', 'Raleway', 'Roboto',
+  // Mono
+  'IBM Plex Mono', 'JetBrains Mono', 'Space Mono',
+  // Display / decorative
+  'Anton', 'Bebas Neue', 'Dancing Script', 'Pacifico',
+];
+
+const FONTS = [...SYSTEM_FONTS, ...GOOGLE_FONTS].sort((a, b) => a.localeCompare(b));
+
+// Track injected Google Font <link> tags so we don't duplicate them
+const _loadedGoogleFonts = new Set();
+
+function ensureFont(name) {
+  if (!GOOGLE_FONTS.includes(name)) return;  // system font, nothing to do
+  if (_loadedGoogleFonts.has(name)) return;  // already injected
+  _loadedGoogleFonts.add(name);
+  const link = document.createElement('link');
+  link.rel  = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${name.replace(/ /g, '+')}:ital,wght@0,400;0,700;1,400&display=swap`;
+  document.head.appendChild(link);
+  // Redraw once the font is actually ready
+  document.fonts.load(`16px "${name}"`).then(() => {
+    layout();
+    rebuildParticleGeometries();
+  });
+}
+
+// Adapter: font-toolbar.js expects P.font / P.size; Glyphkicker uses fontFamily / fontPt.
+// When glyphs are selected, getters reflect the first selected glyph's per-glyph value
+// and setters write to each selected glyph's material instead of PARAMS.
 const _toolbarP = {
-  get font()         { return PARAMS.fontFamily; },
-  set font(v)        { PARAMS.fontFamily = v; },
-  get size()         { return PARAMS.fontPt; },
-  set size(v)        { PARAMS.fontPt = v; },
-  get fillOn()       { return PARAMS.fillOn; },
-  set fillOn(v)      { PARAMS.fillOn = v; },
-  get fillColor()    { return PARAMS.fillColor; },
-  set fillColor(v)   { PARAMS.fillColor = v; },
-  get strokeOn()     { return PARAMS.strokeOn; },
-  set strokeOn(v)    { PARAMS.strokeOn = v; },
-  get strokeColor()  { return PARAMS.strokeColor; },
-  set strokeColor(v) { PARAMS.strokeColor = v; },
-  get strokeWidth()  { return PARAMS.strokeWidth; },
-  set strokeWidth(v) { PARAMS.strokeWidth = v; },
+  get font()         { const g = selectedGlyphs[0]; return (g?.material.fontFamily) || PARAMS.fontFamily; },
+  set font(v)        { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.fontFamily = v);
+                       else PARAMS.fontFamily = v; },
+  get size()         { const g = selectedGlyphs[0]; return (g?.material.fontPt)     || PARAMS.fontPt; },
+  set size(v)        { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.fontPt = v);
+                       else PARAMS.fontPt = v; },
+  get fillOn()       { const g = selectedGlyphs[0]; return (g?.material.fillOn)     ?? PARAMS.fillOn; },
+  set fillOn(v)      { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.fillOn = v);
+                       else PARAMS.fillOn = v; },
+  get fillColor()    { const g = selectedGlyphs[0]; return (g?.material.fill)       || PARAMS.fillColor; },
+  set fillColor(v)   { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.fill = v);
+                       else PARAMS.fillColor = v; },
+  get strokeOn()     { const g = selectedGlyphs[0]; return (g?.material.strokeOn)   ?? PARAMS.strokeOn; },
+  set strokeOn(v)    { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.strokeOn = v);
+                       else PARAMS.strokeOn = v; },
+  get strokeColor()  { const g = selectedGlyphs[0]; return (g?.material.strokeColor)|| PARAMS.strokeColor; },
+  set strokeColor(v) { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.strokeColor = v);
+                       else PARAMS.strokeColor = v; },
+  get strokeWidth()  { const g = selectedGlyphs[0]; return (g?.material.strokeWidth)?? PARAMS.strokeWidth; },
+  set strokeWidth(v) { if (selectedGlyphs.length) selectedGlyphs.forEach(g => g.material.strokeWidth = v);
+                       else PARAMS.strokeWidth = v; },
 };
 
 function buildToolbar() {
@@ -2542,8 +3510,10 @@ function buildToolbar() {
     container:  document.getElementById('toolbar'),
     P:          _toolbarP,
     fonts:      FONTS,
-    ensureFont: () => {},   // system fonts — no async loading needed
-    onChange:   () => { layout(); rebuildParticleGeometries(); },
+    ensureFont:   ensureFont,
+    onPreview:    f => { _previewFont = f; },
+    onPreviewEnd: () => { _previewFont = null; },
+    onChange:     () => { layout(); rebuildParticleGeometries(); },
   });
 }
 
@@ -2614,6 +3584,24 @@ document.getElementById('smSendBtn').addEventListener('click', () => {
   const type = inp.value.trim();
   if (!type || selectedGlyphs.length === 0) return;
   for (const g of selectedGlyphs) AgentEngine.send(g, type, {}, 'user');
+});
+
+// ── Save / Load buttons ─────────────────────────────────────────────────────────
+document.getElementById('saveBtn').addEventListener('click', saveJSON);
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+  document.getElementById('loadFileInput').click();
+});
+
+document.getElementById('loadFileInput').addEventListener('change', function() {
+  if (!this.files[0]) return;
+  loadJSON(this.files[0]);
+  this.value = '';  // reset so the same file can be reloaded
+});
+
+document.getElementById('otFontInput').addEventListener('change', function(e) {
+  if (e.target.files[0]) loadOTFontFile(e.target.files[0]);
+  this.value = '';  // reset so the same file can be reloaded
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────────

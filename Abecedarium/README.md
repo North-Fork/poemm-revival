@@ -28,7 +28,7 @@ Type any letter to spawn a ComplexGlyph. The control panel on the left lets you 
 - **Glyph** — font, size
 - **Render** — text vs. vector mode; noise layers (Independent: Gaussian + Poisson; Spatially Coherent: Perlin)
 - **Colour** — fill, stroke, background
-- **Behaviour** — Dance (per-letter character animation: drift, spin, pulse, planted feet)
+- **Behaviour** — Dance (per-letter character animation: drift, spin, pulse, planted feet); Noise (Independent: Gaussian + Poisson; Perlin); Clone (up to 10 independent layered copies of the glyph path, each with its own fill/stroke/opacity and noise controls)
 - **Actions** — Clear, Freeze/Unfreeze (pauses the clock — behaviours stay attached), alphabet auto-run
 - **File** — Save / Load / Print (PNG) / Record video
 

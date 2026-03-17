@@ -524,6 +524,184 @@ function detachNoise(cg) {
   cg.behaviours = cg.behaviours.filter(b => b.type !== NoiseBehavior);
 }
 
+// ── Clone behaviour ───────────────────────────────────────────────────────────
+// Each clone is an independent copy of the same bezier path, drawn with its own
+// noise displacement, fill, stroke, and opacity — layered beneath the main glyph.
+
+function _makeCloneDefault() {
+  return {
+    enabled:      true,
+    fillOn:       false,  fillColor:   '#ffffff', fillOpacity:   1,
+    strokeOn:     true,   strokeColor: '#ffffff', strokeWidth: 1, strokeOpacity: 1,
+    noise: {
+      independent: { enabled: false, params: { gaussAmt: 5, poissonAmt: 0, noiseSmooth: 0.7, noisePeriod: 0 } },
+      perlin:      { enabled: false, params: { perlinAmt: 10, perlinFreq: 0.008, perlinSpeed: 0.15 } },
+    },
+    _noiseState: null, _noiseSlots: null, _cachedPeriod: -1, _displayCmds: null,
+  };
+}
+
+function getCloneBeh(cg) {
+  return cg?.behaviours.find(b => b.type === CloneBehavior) ?? null;
+}
+
+function _snapshotClones(cg) {
+  if (!cg?._clones) return null;
+  return cg._clones.map(cl => ({
+    enabled:     cl.enabled,
+    fillOn:      cl.fillOn,      fillColor:   cl.fillColor,
+    strokeOn:    cl.strokeOn,    strokeColor: cl.strokeColor, strokeWidth: cl.strokeWidth,
+    opacity:     cl.opacity,
+    noise: {
+      independent: { enabled: cl.noise.independent.enabled, params: { ...cl.noise.independent.params } },
+      perlin:      { enabled: cl.noise.perlin.enabled,      params: { ...cl.noise.perlin.params } },
+    },
+  }));
+}
+
+function attachClone(cg) {
+  if (!cg) return;
+  if (!cg.behaviours.some(b => b.type === CloneBehavior))
+    cg.behaviours.push({ type: CloneBehavior, features: {} });
+  if (!cg._clones) {
+    const src = _savedClones ?? Array.from({ length: _cloneCount }, _makeCloneDefault);
+    cg._clones = src.map(cl => ({
+      enabled:      cl.enabled,
+      fillOn:       cl.fillOn,   fillColor:   cl.fillColor,   fillOpacity:   cl.fillOpacity,
+      strokeOn:     cl.strokeOn, strokeColor: cl.strokeColor, strokeWidth: cl.strokeWidth, strokeOpacity: cl.strokeOpacity,
+      noise: {
+        independent: { enabled: cl.noise.independent.enabled, params: { ...cl.noise.independent.params } },
+        perlin:      { enabled: cl.noise.perlin.enabled,      params: { ...cl.noise.perlin.params } },
+      },
+      _noiseState: null, _noiseSlots: null, _cachedPeriod: -1, _displayCmds: null,
+    }));
+  }
+}
+
+function detachClone(cg) {
+  if (!cg) return;
+  _savedClones  = _snapshotClones(cg);
+  cg._clones    = null;
+  cg.behaviours = cg.behaviours.filter(b => b.type !== CloneBehavior);
+}
+
+// Allocates/resets per-clone noise buffers from cg._baseCmds.
+function _initCloneBuffers(cg, cl) {
+  if (!cg._baseCmds) return;
+  const n          = _noiseSlotCount(cg._baseCmds);
+  cl._displayCmds  = cg._baseCmds.map(cmd => ({ ...cmd }));
+  cl._noiseSlots   = n;
+  cl._cachedPeriod = 0;
+  cl._noiseState   = Array.from({ length: n }, () =>
+    ({ cx: 0, cy: 0, tx: 0, ty: 0, timer: 0 }));
+}
+
+// Advances clone-specific noise state — mirrors updateNoiseState but writes to cl.*.
+function _updateCloneNoiseState(cg, cl, dt, pp) {
+  if (!cl._noiseState) _initCloneBuffers(cg, cl);
+  if (!cl._noiseState) return;
+  const period = pp.noisePeriod > 0 ? pp.noisePeriod : 0;
+  const ns = cl._noiseState, len = ns.length;
+  if (period !== cl._cachedPeriod) {
+    cl._cachedPeriod = period;
+    if (period > 0) for (let i = 0; i < len; i++) ns[i].timer = Math.random() * period;
+  }
+  const alpha = 1 - Math.min(pp.noiseSmooth, 0.9999);
+  for (let i = 0; i < len; i++) {
+    const s = ns[i];
+    s.timer -= dt;
+    if (s.timer <= 0) { s.tx = _sampleDisp(pp); s.ty = _sampleDisp(pp); s.timer = period; }
+    s.cx += (s.tx - s.cx) * alpha;
+    s.cy += (s.ty - s.cy) * alpha;
+  }
+}
+
+const CloneBehavior = {
+  sym: Symbol('clone'),
+  apply(cg, dt, bCtx, features) {
+    if (!cg._clones || P.frozen) return;
+    for (const cl of cg._clones) {
+      if (!cl.enabled) continue;
+      const ind = cl.noise.independent;
+      if (ind.enabled && (ind.params.gaussAmt > 0 || ind.params.poissonAmt > 0))
+        _updateCloneNoiseState(cg, cl, dt, ind.params);
+    }
+  },
+};
+
+// Renders all active clones using cg's transform + per-clone noise/paint.
+// Drawn BEFORE the main glyph so the main glyph always sits on top.
+// dc: omit for normal render; pass offscreen context for export.
+function drawClones(cg, dc) {
+  if (!cg._clones) return;
+  // Re-init path if nulled by a font/size change (mirrors the lazy init in drawCG).
+  if (!cg._baseCmds) {
+    const otFont = fontCache.get(cg.font);
+    if (otFont && otFont !== 'loading') initCGPath(cg, otFont);
+    else return;
+  }
+  if (!dc) dc = ctx;
+  for (const cl of cg._clones) {
+    if (!cl.enabled) continue;
+    if (!cl._displayCmds) _initCloneBuffers(cg, cl);
+    if (!cl._displayCmds) continue;
+
+    const ind          = cl.noise.independent;
+    const per          = cl.noise.perlin;
+    const indActive    = ind.enabled && (ind.params.gaussAmt > 0 || ind.params.poissonAmt > 0);
+    const perlinActive = per.enabled && per.params.perlinAmt > 0 && !P.frozen;
+    const noiseOn      = indActive || perlinActive;
+
+    if (noiseOn) {
+      applyNoiseState(
+        cg._baseCmds,
+        indActive ? cl._noiseState : null,
+        cl._displayCmds,
+        null,                              // no baseline anchoring for clones
+        perlinActive ? per.params : null
+      );
+    }
+    const cmds = noiseOn ? cl._displayCmds : cg._baseCmds;
+
+    dc.save();
+    dc.translate(cg.x, cg.y);
+    if (cg.shear !== 0 && cg._footY != null) {
+      dc.scale(cg.scale, cg.scale);
+      dc.transform(1, 0, -cg.shear, 1, cg.shear * cg._footY, 0);
+    } else {
+      dc.rotate(cg.rotation);
+      dc.scale(cg.scale, cg.scale);
+    }
+    dc.globalCompositeOperation = 'source-over';
+
+    // Build path once; then fill and stroke independently with their own opacities.
+    dc.beginPath();
+    for (let j = 0; j < cmds.length; j++) {
+      const cmd = cmds[j];
+      switch (cmd.type) {
+        case 'M': dc.moveTo(cmd.x, cmd.y); break;
+        case 'L': dc.lineTo(cmd.x, cmd.y); break;
+        case 'C': dc.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y); break;
+        case 'Q': dc.quadraticCurveTo(cmd.x1, cmd.y1, cmd.x, cmd.y); break;
+        case 'Z': dc.closePath(); break;
+      }
+    }
+    if (cl.fillOn) {
+      dc.globalAlpha = cl.fillOpacity;
+      dc.fillStyle   = cl.fillColor;
+      dc.fill();
+    }
+    if (cl.strokeOn) {
+      dc.globalAlpha = cl.strokeOpacity;
+      dc.strokeStyle = cl.strokeColor;
+      dc.lineWidth   = cl.strokeWidth;
+      dc.lineJoin    = 'round';
+      dc.stroke();
+    }
+    dc.restore();
+  }
+}
+
 let danceActive          = false;
 let _danceCb             = null;   // dance checkbox ref — set in buildUI, synced on URL-param load
 let _syncDanceFeatureRows = () => {};  // set in buildUI; called after glyph spawns with dance active
@@ -532,6 +710,12 @@ let _noiseCb              = null;      // noise checkbox ref — set in buildUI
 let _syncNoiseFeatureRows = null;      // set in buildUI; called after glyph spawns
 let _savedDanceFeatures   = null;      // persists across glyph spawns
 let _savedNoiseFeatures   = null;      // persists across glyph spawns
+let cloneActive           = false;
+let _cloneCb              = null;      // clone checkbox ref — set in buildUI
+let _cloneCountInp        = null;      // count input ref — set in buildUI
+let _syncClonePanels      = null;      // set in buildUI; syncs per-clone panel states
+let _savedClones          = null;      // array of clone configs, persists across glyph spawns
+let _cloneCount           = 1;         // how many clone panels are visible/active
 
 // ── Alphabet auto-run ─────────────────────────────────────────────────────────
 const AUTO_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -855,6 +1039,15 @@ function initCGPath(cg, otFont) {
   cg._footY = baselineY;  // local Y of the glyph baseline (feet) — for pinFeet dance
   // Initial anchored map using default threshold; recomputed in attachDance (uses dance param).
   _recomputeBaselineAnchored(cg, cg.size * 0.05);
+  // Reset clone display buffers — path changed, reallocated lazily next frame.
+  if (cg._clones) {
+    for (const cl of cg._clones) {
+      cl._displayCmds  = path.commands.map(cmd => ({ ...cmd }));
+      cl._noiseState   = null;
+      cl._noiseSlots   = null;
+      cl._cachedPeriod = -1;
+    }
+  }
 }
 
 // ── Pointer → CG local coordinate transform ──────────────────────────────────
@@ -1143,6 +1336,7 @@ function spawnCG(char) {
   if (currentCG) {
     _savedDanceFeatures = _snapshotFeatures(getDanceBeh(currentCG)) ?? _savedDanceFeatures;
     _savedNoiseFeatures = _snapshotFeatures(getNoiseBeh(currentCG)) ?? _savedNoiseFeatures;
+    _savedClones        = _snapshotClones(currentCG) ?? _savedClones;
   }
   sel = null; drag = null; bodyDrag = null;
   currentCG = makeCG(char, canvasCX(), canvasCY());
@@ -1152,6 +1346,7 @@ function spawnCG(char) {
   updateCharDisplay(char);
   if (danceActive) attachDance(currentCG);
   if (noiseActive) { attachNoise(currentCG); _syncNoiseFeatureRows?.(); }
+  if (cloneActive) { attachClone(currentCG); _syncClonePanels?.(); }
 }
 
 function clearCG() {
@@ -1217,7 +1412,10 @@ function loop(ts) {
   ctx.fillStyle = P.bg;
   ctx.fillRect(0, 0, _canvasW, _canvasH);
   octx.clearRect(0, 0, _canvasW, _canvasH);
-  if (currentCG) drawCG(currentCG);
+  // When Clone is active, only clone layers are drawn — the main glyph is suppressed
+  // so that all visual layers are fully user-controlled via the Clone panel.
+  if (currentCG && cloneActive) drawClones(currentCG);
+  if (currentCG && !cloneActive) drawCG(currentCG);
   if (_recCaptureCursor && _mouseDown && _cursorX >= 0) {
     ctx.save();
     ctx.font         = '24px serif';
@@ -1743,7 +1941,8 @@ async function printPNG() {
 
   ectx.fillStyle = P.bg;
   ectx.fillRect(0, 0, _canvasW, _canvasH);
-  if (currentCG) drawCG(currentCG, ectx);
+  if (currentCG && cloneActive) drawClones(currentCG, ectx);
+  if (currentCG && !cloneActive) drawCG(currentCG, ectx);
 
   ec.toBlob(blob => {
     const url  = URL.createObjectURL(blob);
@@ -2108,6 +2307,134 @@ function _updateAutoBtn() {
   _autoRunBtn.style.borderColor = _autoRunning ? '#602020' : '';
 }
 
+// ── Clone panel helpers ───────────────────────────────────────────────────────
+
+// Noise feature row scoped to currentCG._clones[cloneIdx].noise[featureKey].
+function _makeCloneNoiseFeatureRow(cloneIdx, featureKey, paramDefs) {
+  const getF = () =>
+    currentCG?._clones?.[cloneIdx]?.noise[featureKey] ??
+    _savedClones?.[cloneIdx]?.noise[featureKey] ?? null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'feature-row';
+  const hd = document.createElement('div');
+  hd.className = 'feature-hd';
+
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = `cb-clone${cloneIdx}-${featureKey}`;
+  cb.addEventListener('click', e => e.stopPropagation());
+
+  const lbl = document.createElement('span');
+  lbl.className = 'feature-label';
+  lbl.textContent = featureKey === 'independent' ? 'Independent' : 'Perlin';
+  lbl.addEventListener('click', () => cb.click());
+
+  hd.append(cb);
+
+  const paramsDiv = document.createElement('div');
+  paramsDiv.className = 'feature-params';
+
+  if (paramDefs.length > 0) {
+    const arrow = document.createElement('span');
+    arrow.className = 'feature-arrow open'; arrow.textContent = '▶';
+    hd.append(arrow, lbl);
+
+    for (const pd of paramDefs) {
+      paramsDiv.appendChild(makeSlider(pd.label, pd.min, pd.max, pd.step,
+        () => getF()?.params[pd.key] ?? pd.min,
+        v  => { const f = getF(); if (f) f.params[pd.key] = v; }
+      ));
+    }
+    hd.addEventListener('click', () => {
+      arrow.classList.toggle('open');
+      paramsDiv.classList.toggle('hidden');
+    });
+  } else {
+    hd.append(lbl);
+  }
+
+  wrap.appendChild(hd);
+  wrap.appendChild(paramsDiv);
+
+  cb.addEventListener('change', () => {
+    const f = getF();
+    if (f) { f.enabled = cb.checked; }
+  });
+
+  wrap.sync = () => { cb.checked = !!getF()?.enabled; };
+  wrap.sync();
+  return wrap;
+}
+
+// Builds a collapsible sub-panel for one clone (index i).
+function _buildClonePanel(i) {
+  const sub = makeSubSection(`Clone ${i + 1}`, false);
+
+  // Per-clone enable toggle embedded in the subsection header
+  const enCb = document.createElement('input');
+  enCb.type = 'checkbox'; enCb.checked = true;
+  enCb.style.cssText = 'cursor:pointer;accent-color:#7af;margin-right:4px';
+  enCb.addEventListener('click', e => e.stopPropagation());
+  enCb.addEventListener('change', () => {
+    const cl = currentCG?._clones?.[i];
+    if (cl) cl.enabled = enCb.checked;
+  });
+  sub.hd.insertBefore(enCb, sub.hd.firstChild);
+
+  // Fill: checkbox + color picker + opacity
+  sub.bd.appendChild(makeCheckColorRow('Fill',
+    () => currentCG?._clones?.[i]?.fillOn ?? false,
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.fillOn = v; },
+    () => currentCG?._clones?.[i]?.fillColor ?? '#ffffff',
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.fillColor = v; }
+  ));
+  sub.bd.appendChild(makeSlider('Fill opacity', 0, 1, 0.01,
+    () => currentCG?._clones?.[i]?.fillOpacity ?? 1,
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.fillOpacity = v; }
+  ));
+
+  // Stroke: checkbox + color picker + opacity + width
+  sub.bd.appendChild(makeCheckColorRow('Stroke',
+    () => currentCG?._clones?.[i]?.strokeOn ?? true,
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeOn = v; },
+    () => currentCG?._clones?.[i]?.strokeColor ?? '#ffffff',
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeColor = v; }
+  ));
+  sub.bd.appendChild(makeSlider('Stroke opacity', 0, 1, 0.01,
+    () => currentCG?._clones?.[i]?.strokeOpacity ?? 1,
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeOpacity = v; }
+  ));
+  sub.bd.appendChild(makeSlider('Stroke W', 0.5, 10, 0.5,
+    () => currentCG?._clones?.[i]?.strokeWidth ?? 1,
+    v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeWidth = v; }
+  ));
+
+  // Independent and Perlin noise feature rows
+  const indRow = _makeCloneNoiseFeatureRow(i, 'independent', [
+    { key: 'gaussAmt',    label: 'Gaussian',   min: 0,     max: 50,   step: 0.5   },
+    { key: 'poissonAmt',  label: 'Poisson',    min: 0,     max: 50,   step: 0.5   },
+    { key: 'noiseSmooth', label: 'Smooth',     min: 0,     max: 0.99, step: 0.01  },
+    { key: 'noisePeriod', label: 'Period (s)', min: 0,     max: 3,    step: 0.05  },
+  ]);
+  const perlinRow = _makeCloneNoiseFeatureRow(i, 'perlin', [
+    { key: 'perlinAmt',   label: 'Amount',     min: 0,     max: 50,   step: 0.5   },
+    { key: 'perlinFreq',  label: 'Frequency',  min: 0.001, max: 0.05, step: 0.001 },
+    { key: 'perlinSpeed', label: 'Speed',      min: 0,     max: 2,    step: 0.01  },
+  ]);
+  sub.bd.appendChild(indRow);
+  sub.bd.appendChild(perlinRow);
+
+  // sync() refreshes the enable checkbox and noise checkboxes from live state.
+  sub.syncEnabled = () => {
+    const cl = currentCG?._clones?.[i];
+    enCb.checked = cl ? cl.enabled : true;
+    indRow.sync();
+    perlinRow.sync();
+  };
+
+  return sub;
+}
+
 // ── Build panel UI ────────────────────────────────────────────────────────────
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 // Thin wrappers — implementation lives in PoEMM/shared/font-toolbar.js
@@ -2259,6 +2586,67 @@ function buildUI() {
 
   behSec.bd.appendChild(noiseSub.hd);
   behSec.bd.appendChild(noiseSub.bd);
+
+  // ── Behaviour → Clone ──
+  const cloneSub = makeSubSection('Clone');
+
+  // Clone on/off checkbox embedded in the subsection header (same pattern as Dance/Noise)
+  _cloneCb = document.createElement('input');
+  _cloneCb.type = 'checkbox'; _cloneCb.id = 'cb-clone'; _cloneCb.checked = cloneActive;
+  _cloneCb.style.cssText = 'cursor:pointer; accent-color:#7af; margin-right:4px;';
+  _cloneCb.addEventListener('click', e => e.stopPropagation());
+  cloneSub.hd.insertBefore(_cloneCb, cloneSub.hd.firstChild);
+
+  // Clone count control
+  const cloneCountRow = document.createElement('div');
+  cloneCountRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0';
+  const cloneCountLbl = document.createElement('span');
+  cloneCountLbl.textContent = 'Clones';
+  cloneCountLbl.style.cssText = 'font-size:10px;color:#888;flex:1';
+  _cloneCountInp = document.createElement('input');
+  _cloneCountInp.type = 'number'; _cloneCountInp.min = 1; _cloneCountInp.max = 10;
+  _cloneCountInp.value = _cloneCount; _cloneCountInp.className = 'param-val-input';
+  _cloneCountInp.style.width = '42px';
+  cloneCountRow.append(cloneCountLbl, _cloneCountInp);
+  cloneSub.bd.appendChild(cloneCountRow);
+
+  // Build all 10 clone sub-panels; show only the first _cloneCount
+  const _clonePanelList = [];
+  for (let i = 0; i < 10; i++) {
+    const cp = _buildClonePanel(i);
+    cloneSub.bd.appendChild(cp.hd);
+    cloneSub.bd.appendChild(cp.bd);
+    if (i >= _cloneCount) { cp.hd.style.display = 'none'; cp.bd.style.display = 'none'; }
+    _clonePanelList.push(cp);
+  }
+
+  _cloneCountInp.addEventListener('change', () => {
+    const n = Math.max(1, Math.min(10, parseInt(_cloneCountInp.value) || 1));
+    _cloneCountInp.value = n;
+    _cloneCount = n;
+    // Grow _clones array on the live glyph if needed (never shrink — preserves hidden state)
+    if (currentCG?._clones) {
+      while (currentCG._clones.length < n) currentCG._clones.push(_makeCloneDefault());
+    }
+    for (let i = 0; i < 10; i++) {
+      const show = i < n;
+      _clonePanelList[i].hd.style.display = show ? '' : 'none';
+      _clonePanelList[i].bd.style.display = show ? '' : 'none';
+    }
+  });
+
+  // Expose sync for use by spawnCG / attachClone
+  _syncClonePanels = () => { _clonePanelList.forEach(cp => cp.syncEnabled?.()); };
+
+  _cloneCb.addEventListener('change', () => {
+    cloneActive = _cloneCb.checked;
+    if (cloneActive) { if (currentCG) attachClone(currentCG); }
+    else             { if (currentCG) detachClone(currentCG); }
+    _syncClonePanels();
+  });
+
+  behSec.bd.appendChild(cloneSub.hd);
+  behSec.bd.appendChild(cloneSub.bd);
 
   panel.appendChild(behSec.hd);
   panel.appendChild(behSec.bd);

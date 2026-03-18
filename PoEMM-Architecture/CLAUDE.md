@@ -23,6 +23,15 @@ Detailed reference notes are stored in the Claude Code memory directory:
 Memory files live at:
 `/Users/jasonlocal/.claude/projects/-Users-jasonlocal-Library-CloudStorage-Dropbox-Dev/memory/`
 
+## Abecedarium — Clone Behaviour
+
+`CloneBehavior` renders up to 10 independent layered copies of the glyph path, each with:
+- Per-clone fill (color + opacity) and stroke (color + opacity + width)
+- Full independent noise controls: Gaussian/Poisson/Smooth/Period and Perlin
+- `drawClones()` runs before `drawCG()` (main glyph on top); when Clone is active, main glyph is suppressed so all layers come from Clone panels
+- `loadPreset({char, clones, danceActive, noiseActive})` is a global function callable from the DevTools console for quickly setting up test configurations
+- Save/Load (`.abcd.json`) includes full clone state
+
 ## Shared font-toolbar.js
 
 `PoEMM/shared/font-toolbar.js` is the single source of truth for the font/size/fill/stroke toolbar used across PoEMM web projects. Currently used by Abecedarium and Glyphkicker.
@@ -160,4 +169,4 @@ The JS port mirrors the hierarchy with `NTBook`, `NTTextObject`, `NTWord`, `NTGl
 ## Context
 
 PoEMM = Poetry for Excitable [Mobile] Media. See MEMORY.md for full project overview.
-The source codebases (ObjC iOS + Java/Processing) are at `/Users/jasonlocal/Library/CloudStorage/Dropbox/Dev/`.
+The source codebases (ObjC iOS + Java/Processing) are at `/Users/jasonlocal/Documents/Dev-MacMighty/`.

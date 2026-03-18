@@ -1658,6 +1658,8 @@ function makeSlider(label, min, max, step, getter, setter) {
 
   row.appendChild(hdr);
   row.appendChild(rangeInp);
+  // sync() refreshes the displayed value from the getter — called by panel sync routines.
+  row.sync = () => { const v = getter(); rangeInp.value = v; numInp.value = fmt(v); };
   return row;
 }
 
@@ -2016,6 +2018,7 @@ function _makeFileData(name) {
     behaviour: {
       danceActive,
       noiseActive,
+      cloneActive,
       dance: (() => {
         const beh = getDanceBeh(currentCG);
         if (!beh) return null;
@@ -2031,6 +2034,11 @@ function _makeFileData(name) {
         for (const key of Object.keys(beh.features))
           features[key] = { enabled: beh.features[key].enabled, params: { ...beh.features[key].params } };
         return { features };
+      })(),
+      clone: (() => {
+        const clones = _snapshotClones(currentCG);
+        if (!clones) return null;
+        return { count: clones.length, clones };
       })(),
     },
     baseCmds: currentCG._baseCmds ? currentCG._baseCmds.map(c => ({ ...c })) : null,
@@ -2160,19 +2168,19 @@ async function saveStateToFile() {
     const json = JSON.stringify(_makeFileData(name), null, 2);
     const blob = new Blob([json], { type: 'application/octet-stream' });
     const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { href: url, download: `${name}.abcd` });
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `${name}.abcd.json` });
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    setSaveStatus('ok', `Saved: ${name}.abcd`);
+    setSaveStatus('ok', `Saved: ${name}.abcd.json`);
   } catch (e) {
     setSaveStatus('err', `Save failed: ${e.message}`);
   }
 }
 
 function openStateFromFile() {
-  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.abcd,.json' });
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.abcd.json,.abcd,.json' });
   input.addEventListener('change', async () => {
     if (!input.files[0]) return;
     try {
@@ -2187,14 +2195,19 @@ function openStateFromFile() {
 
 function loadStateFromData(data) {
   Object.assign(P, data.settings);
-  // Restore behaviour state
+  // Restore behaviour flags — must happen before rebuildPanel so buildUI reads correct state
   if (data.behaviour) {
     danceActive = !!data.behaviour.danceActive;
     noiseActive = !!data.behaviour.noiseActive;
+    cloneActive = !!data.behaviour.cloneActive;
+    if (data.behaviour.clone?.clones) {
+      _savedClones = data.behaviour.clone.clones;
+      _cloneCount  = data.behaviour.clone.count ?? _savedClones.length;
+    }
   }
   rebuildPanel();
   syncToolbar();
-  spawnCG(data.char);
+  spawnCG(data.char);  // spawnCG → attachClone picks up _savedClones automatically
   // Restore dance features over whatever spawnCG attached
   if (data.behaviour && currentCG) {
     const beh = getDanceBeh(currentCG);
@@ -2226,6 +2239,8 @@ function loadStateFromData(data) {
         _syncNoiseFeatureRows?.();
       }
     }
+    // Sync clone panel displays (sliders + checkboxes) to the restored clone state
+    if (cloneActive) _syncClonePanels?.();
   }
   if (data.baseCmds && currentCG) {
     currentCG._baseCmds          = data.baseCmds.map(c => ({ ...c }));
@@ -2334,16 +2349,19 @@ function _makeCloneNoiseFeatureRow(cloneIdx, featureKey, paramDefs) {
   const paramsDiv = document.createElement('div');
   paramsDiv.className = 'feature-params';
 
+  const paramSliders = [];
   if (paramDefs.length > 0) {
     const arrow = document.createElement('span');
     arrow.className = 'feature-arrow open'; arrow.textContent = '▶';
     hd.append(arrow, lbl);
 
     for (const pd of paramDefs) {
-      paramsDiv.appendChild(makeSlider(pd.label, pd.min, pd.max, pd.step,
+      const s = makeSlider(pd.label, pd.min, pd.max, pd.step,
         () => getF()?.params[pd.key] ?? pd.min,
         v  => { const f = getF(); if (f) f.params[pd.key] = v; }
-      ));
+      );
+      paramsDiv.appendChild(s);
+      paramSliders.push(s);
     }
     hd.addEventListener('click', () => {
       arrow.classList.toggle('open');
@@ -2361,7 +2379,7 @@ function _makeCloneNoiseFeatureRow(cloneIdx, featureKey, paramDefs) {
     if (f) { f.enabled = cb.checked; }
   });
 
-  wrap.sync = () => { cb.checked = !!getF()?.enabled; };
+  wrap.sync = () => { cb.checked = !!getF()?.enabled; paramSliders.forEach(s => s.sync()); };
   wrap.sync();
   return wrap;
 }
@@ -2388,10 +2406,11 @@ function _buildClonePanel(i) {
     () => currentCG?._clones?.[i]?.fillColor ?? '#ffffff',
     v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.fillColor = v; }
   ));
-  sub.bd.appendChild(makeSlider('Fill opacity', 0, 1, 0.01,
+  const fillOpRow = makeSlider('Fill opacity', 0, 1, 0.01,
     () => currentCG?._clones?.[i]?.fillOpacity ?? 1,
     v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.fillOpacity = v; }
-  ));
+  );
+  sub.bd.appendChild(fillOpRow);
 
   // Stroke: checkbox + color picker + opacity + width
   sub.bd.appendChild(makeCheckColorRow('Stroke',
@@ -2400,14 +2419,16 @@ function _buildClonePanel(i) {
     () => currentCG?._clones?.[i]?.strokeColor ?? '#ffffff',
     v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeColor = v; }
   ));
-  sub.bd.appendChild(makeSlider('Stroke opacity', 0, 1, 0.01,
+  const strokeOpRow = makeSlider('Stroke opacity', 0, 1, 0.01,
     () => currentCG?._clones?.[i]?.strokeOpacity ?? 1,
     v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeOpacity = v; }
-  ));
-  sub.bd.appendChild(makeSlider('Stroke W', 0.5, 10, 0.5,
+  );
+  sub.bd.appendChild(strokeOpRow);
+  const strokeWRow = makeSlider('Stroke W', 0.5, 10, 0.5,
     () => currentCG?._clones?.[i]?.strokeWidth ?? 1,
     v  => { const cl = currentCG?._clones?.[i]; if (cl) cl.strokeWidth = v; }
-  ));
+  );
+  sub.bd.appendChild(strokeWRow);
 
   // Independent and Perlin noise feature rows
   const indRow = _makeCloneNoiseFeatureRow(i, 'independent', [
@@ -2424,10 +2445,13 @@ function _buildClonePanel(i) {
   sub.bd.appendChild(indRow);
   sub.bd.appendChild(perlinRow);
 
-  // sync() refreshes the enable checkbox and noise checkboxes from live state.
+  // syncEnabled() refreshes enable checkbox, noise checkboxes, and all sliders from live state.
   sub.syncEnabled = () => {
     const cl = currentCG?._clones?.[i];
     enCb.checked = cl ? cl.enabled : true;
+    fillOpRow.sync();
+    strokeOpRow.sync();
+    strokeWRow.sync();
     indRow.sync();
     perlinRow.sync();
   };
@@ -2752,6 +2776,55 @@ function buildUI() {
   const saveStatus = document.createElement('div');
   saveStatus.id = 'save-status';
   panel.appendChild(saveStatus);
+}
+
+// ── loadPreset — console API ──────────────────────────────────────────────────
+// Function declarations are on window, so this is callable from DevTools console
+// even though all the internal `let` variables are in script scope.
+//
+// Usage:
+//   loadPreset({ char: 'a', clones: [ {fillOn, strokeOn, noise: {independent: {enabled, params: {gaussAmt,...}}, perlin: {...}}} ] })
+//
+// All clone fields are optional — missing ones fall back to _makeCloneDefault() values.
+function loadPreset(spec) {
+  if (spec.clones) {
+    _savedClones = spec.clones.map(cl => {
+      const d = _makeCloneDefault();
+      return {
+        enabled:       cl.enabled       ?? d.enabled,
+        fillOn:        cl.fillOn        ?? d.fillOn,
+        fillColor:     cl.fillColor     ?? d.fillColor,
+        fillOpacity:   cl.fillOpacity   ?? d.fillOpacity,
+        strokeOn:      cl.strokeOn      ?? d.strokeOn,
+        strokeColor:   cl.strokeColor   ?? d.strokeColor,
+        strokeWidth:   cl.strokeWidth   ?? d.strokeWidth,
+        strokeOpacity: cl.strokeOpacity ?? d.strokeOpacity,
+        noise: {
+          independent: {
+            enabled: cl.noise?.independent?.enabled ?? d.noise.independent.enabled,
+            params:  { ...d.noise.independent.params, ...cl.noise?.independent?.params },
+          },
+          perlin: {
+            enabled: cl.noise?.perlin?.enabled ?? d.noise.perlin.enabled,
+            params:  { ...d.noise.perlin.params, ...cl.noise?.perlin?.params },
+          },
+        },
+        _noiseState: null, _noiseSlots: null, _cachedPeriod: -1, _displayCmds: null,
+      };
+    });
+    _cloneCount = _savedClones.length;
+    if (_cloneCountInp) {
+      _cloneCountInp.value = _cloneCount;
+      _cloneCountInp.dispatchEvent(new Event('change'));
+    }
+    cloneActive = true;
+    if (_cloneCb) _cloneCb.checked = true;
+  }
+  danceActive = !!spec.danceActive;
+  noiseActive = !!spec.noiseActive;
+  if (_danceCb) _danceCb.checked = danceActive;
+  if (_noiseCb) _noiseCb.checked = noiseActive;
+  if (spec.char) spawnCG(spec.char);
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

@@ -25,12 +25,18 @@ Memory files live at:
 
 ## Abecedarium — Clone Behaviour
 
-`CloneBehavior` renders up to 10 independent layered copies of the glyph path, each with:
+`CloneBehavior` renders up to 15 independent layered copies of the glyph path, each with:
 - Per-clone fill (color + opacity) and stroke (color + opacity + width)
+- Per-clone X/Y offset (range −200 → 200, glyph-space, applied before rotate/scale)
 - Full independent noise controls: Gaussian/Poisson/Smooth/Period and Perlin
+- Per-clone Perlin **phase offset** (`perlinPhase`, 0–5s): each clone samples Perlin at a different time, enabling stagger/ripple effects across layers
+- **Global noise** (`_globalNoise`): shared noise base computed once per frame; its displaced cmds are passed as `baseCmds` to each clone's `applyNoiseState` — additive on top of per-clone noise
+- **Stagger button**: distributes `perlinPhase` evenly across all active clones; step input controls per-clone increment (default 0.2s)
+- **Panel UX**: Collapse All / Expand All buttons; "Copy ▾" button on each panel copies that clone's settings to any other panel (copy-to model)
 - `drawClones()` runs before `drawCG()` (main glyph on top); when Clone is active, main glyph is suppressed so all layers come from Clone panels
-- `loadPreset({char, clones, danceActive, noiseActive})` is a global function callable from the DevTools console for quickly setting up test configurations
-- Save/Load (`.abcd.json`) includes full clone state
+- `loadPreset({char, clones, globalNoise, danceActive, noiseActive})` is a global function callable from the DevTools console for quickly setting up test configurations; supports `offsetX`, `offsetY`, `fillOpacity`, `strokeOpacity`
+- Save/Load (`.abcd.json`) includes full clone state including `globalNoise` and phase offsets
+- Dance/Noise/Clone subsections start **collapsed** by default
 
 ## Shared font-toolbar.js
 

@@ -71,6 +71,7 @@
 .tb-range:active::-moz-range-thumb { background:#3a7fcc; }
 .tb-size-range   { width:72px; }
 .tb-weight-range { width:72px; }
+.tb-range-clip   { overflow:hidden; flex-shrink:0; display:flex; align-items:center; height:22px; }
 .tb-color {
   width:22px; height:22px; padding:1px 2px;
   border:1px solid #2a2a2a; background:#1a1a1a; border-radius:3px; cursor:pointer;
@@ -95,7 +96,7 @@
    * @param {function}    opts.ensureFont - (name) => void  load font async
    * @param {function}    opts.onChange   - () => void  called after any P write
    */
-  function buildFontToolbar({ container, P, fonts, ensureFont, onChange }) {
+  function buildFontToolbar({ container, P, fonts, ensureFont, onChange, onPreview, onPreviewEnd }) {
     injectCSS();
 
     container.innerHTML = '';
@@ -148,10 +149,12 @@
       item.addEventListener('mouseenter', () => {
         ensureFont(f);
         fontSample.style.fontFamily = `"${f}",serif`;
+        if (onPreview) onPreview(f);
       });
       // Commit on click
       item.addEventListener('mousedown', e => {
         e.preventDefault();
+        if (onPreviewEnd) onPreviewEnd();
         P.font = f;
         fontBtn.textContent = f;
         fontSample.style.fontFamily = `"${f}",serif`;
@@ -167,6 +170,7 @@
     // Revert sample when mouse leaves without selecting
     fontDropdown.addEventListener('mouseleave', () => {
       fontSample.style.fontFamily = `"${P.font}",serif`;
+      if (onPreviewEnd) onPreviewEnd();
     });
 
     // Toggle dropdown
@@ -197,12 +201,12 @@
     const sizeNum = document.createElement('input');
     sizeNum.id = 'tb-size-num'; sizeNum.type = 'number';
     sizeNum.className = 'tb-num tb-size-num';
-    sizeNum.min = 12; sizeNum.max = 600; sizeNum.step = 1; sizeNum.value = P.size;
+    sizeNum.min = 12; sizeNum.max = 1500; sizeNum.step = 1; sizeNum.value = P.size;
 
     const sizeRange = document.createElement('input');
     sizeRange.id = 'tb-size-range'; sizeRange.type = 'range';
     sizeRange.className = 'tb-range tb-size-range';
-    sizeRange.min = 12; sizeRange.max = 600; sizeRange.step = 1; sizeRange.value = P.size;
+    sizeRange.min = 12; sizeRange.max = 1500; sizeRange.step = 1; sizeRange.value = P.size;
 
     sizeRange.addEventListener('input', () => {
       P.size = parseFloat(sizeRange.value);
@@ -210,7 +214,7 @@
       onChange();
     });
     function commitSize() {
-      let v = Math.max(12, Math.min(600, Math.round(parseFloat(sizeNum.value))));
+      let v = Math.max(12, Math.min(1500, Math.round(parseFloat(sizeNum.value))));
       if (isNaN(v)) v = P.size;
       P.size = v; sizeNum.value = v; sizeRange.value = v;
       onChange();
@@ -218,7 +222,11 @@
     sizeNum.addEventListener('change', commitSize);
     sizeNum.addEventListener('keydown', e => { if (e.key === 'Enter') sizeNum.blur(); });
 
-    group(sizeNum, sizeRange);
+    const sizeRangeClip = document.createElement('div');
+    sizeRangeClip.className = 'tb-range-clip';
+    sizeRangeClip.style.width = '72px';
+    sizeRangeClip.appendChild(sizeRange);
+    group(sizeNum, sizeRangeClip);
 
     sep();
 
@@ -288,7 +296,11 @@
     weightNum.addEventListener('change', commitWeight);
     weightNum.addEventListener('keydown', e => { if (e.key === 'Enter') weightNum.blur(); });
 
-    group(strokeIcon, strokeColor, weightNum, weightRange);
+    const weightRangeClip = document.createElement('div');
+    weightRangeClip.className = 'tb-range-clip';
+    weightRangeClip.style.width = '72px';
+    weightRangeClip.appendChild(weightRange);
+    group(strokeIcon, strokeColor, weightNum, weightRangeClip);
   }
 
   // ── syncFontToolbar ────────────────────────────────────────────────────────

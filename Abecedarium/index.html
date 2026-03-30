@@ -141,6 +141,17 @@ input[type=range]::-webkit-slider-thumb {
 .tog-btn:hover  { background: #222; color: #aaa; }
 .tog-btn.active { background: #1a2a3a; color: #7af; border-color: #2a4060; }
 
+/* Mode toggle bar (Design / Act) — sits above all panel sections */
+#mode-toggle {
+  display: flex; margin-bottom: 10px;
+  border: 1px solid #2a2a2a; overflow: hidden;
+}
+#mode-toggle .tog-btn {
+  flex: 1; border: none; border-right: 1px solid #2a2a2a; border-radius: 0;
+  font-size: 11px; letter-spacing: 0.1em;
+}
+#mode-toggle .tog-btn:last-child { border-right: none; }
+
 /* Action button */
 .action-btn {
   width: 100%; padding: 7px; margin-top: 6px;
@@ -212,11 +223,34 @@ input[type=range]::-webkit-slider-thumb {
 canvas { position: fixed; left: 240px; top: 36px; touch-action: none; display: block; }
 /* Overlay canvas — anchors/handles only; pointer-events: none keeps clicks passing to #c */
 #ov { pointer-events: none; z-index: 1; }
+
+/* Behavior-apply prompt — appears over canvas when typing a new letter after a clear */
+#behavior-prompt {
+  display: none;
+  position: fixed; left: 240px; top: 36px; right: 0;
+  background: rgba(20,20,30,0.92); color: #ccc;
+  font: 13px/36px monospace; padding: 0 14px;
+  z-index: 10; align-items: center; gap: 12px;
+  border-bottom: 1px solid #444;
+}
+#behavior-prompt.visible { display: flex; }
+#behavior-prompt span { flex: 1; }
+#behavior-prompt button {
+  padding: 3px 12px; border: 1px solid #555; border-radius: 3px;
+  background: #222; color: #ccc; cursor: pointer; font: 12px monospace;
+}
+#behavior-prompt button:hover { background: #333; }
+#behavior-prompt button.apply { border-color: #7af; color: #7af; }
 </style>
 </head>
 <body>
 
 <div id="toolbar"><!-- built by buildToolbar() --></div>
+<div id="behavior-prompt">
+  <span id="behavior-prompt-msg"></span>
+  <button class="apply" id="behavior-prompt-apply">Apply</button>
+  <button id="behavior-prompt-skip">Start fresh</button>
+</div>
 
 <div id="panel">
   <div id="panel-title">Abecedarium</div>
@@ -252,9 +286,10 @@ const P = {
   strokeWidth: 1,
   bg:          '#000000',
   renderMode:  'vector',      // 'text' | 'vector'
-  frozen:      false,         // pause noise evolution (global preview toggle)
-  showAnchors: false,         // draw on-curve anchor points
-  showHandles: false,         // draw off-curve control handles + lines
+  frozen:          false,          // pause noise evolution (global preview toggle)
+  showAnchors:     false,          // draw on-curve anchor points
+  showHandles:     false,          // draw off-curve control handles + lines
+  interactionMode: 'design',       // 'design' = edit control points | 'act' = pointer reactions
 };
 
 // ── Noise defaults ────────────────────────────────────────────────────────────
@@ -404,6 +439,7 @@ function makeCG(char, x, y) {
     _baseCmds:    null,   // editable path commands (null until font loads)
     _displayCmds: null,   // pre-allocated output buffer for noise-displaced rendering
     _noiseState:  null,   // per-point smoothed noise displacements
+    _pointerState:null,   // per-anchor spring displacements for PointerBehavior
   };
 }
 
@@ -768,6 +804,7 @@ let _autoTimer      = null;
 let _autoDwell      = 1;      // seconds per letter
 let _autoUppercase  = true;   // true = A-Z, false = a-z
 let _autoRunBtn     = null;   // button ref — set in buildUI
+let _caseBtn        = null;   // ABC/abc toggle ref — set in buildUI
 let _autoFeatures   = null;   // snapshot of dance features taken at run start; applied to every letter
 
 // ── Video recording state ─────────────────────────────────────────────────────
@@ -818,6 +855,153 @@ function detachDance(cg) {
   cg.scale    = st ? st.baseScale : 1;
   cg.x = cg.homeX;
   cg.y = cg.homeY;
+}
+
+// ── Pointer behaviour ─────────────────────────────────────────────────────────
+// Spring-based reactions: Repel, Attract, Shake — active only in Act mode.
+// Anchor control points spring toward/away from the cursor; non-anchor slots stay 0.
+
+const POINTER_DEFAULT = {
+  radius:  200,
+  repel:   { enabled: false, params: { strength: 120 } },
+  attract: { enabled: false, params: { strength: 120 } },
+  shake:   { enabled: false, params: { freq: 8, amp: 30 } },
+};
+
+let pointerActive         = false;
+let _pointerCb            = null;   // checkbox ref — set in buildUI
+let _savedPointerFeatures = null;   // persists across glyph spawns
+let _syncPointerPanel     = null;   // set in buildUI
+let _updateModeButtons    = null;   // set in buildUI; syncs Design/Act button active states
+
+function getPointerBeh(cg) {
+  return cg?.behaviours.find(b => b.type === PointerBehavior) ?? null;
+}
+
+function attachPointer(cg) {
+  if (!cg) return;
+  if (!cg.behaviours.some(b => b.type === PointerBehavior)) {
+    const src = _savedPointerFeatures ?? POINTER_DEFAULT;
+    const features = {
+      radius:  src.radius ?? POINTER_DEFAULT.radius,
+      repel:   { enabled: src.repel.enabled,   params: { ...src.repel.params } },
+      attract: { enabled: src.attract.enabled, params: { ...src.attract.params } },
+      shake:   { enabled: src.shake.enabled,   params: { ...src.shake.params } },
+    };
+    cg.behaviours.push({ type: PointerBehavior, features });
+  }
+}
+
+function _snapshotPointerFeatures(cg) {
+  const beh = getPointerBeh(cg);
+  if (!beh) return null;
+  return {
+    radius:  beh.features.radius,
+    repel:   { enabled: beh.features.repel.enabled,   params: { ...beh.features.repel.params } },
+    attract: { enabled: beh.features.attract.enabled, params: { ...beh.features.attract.params } },
+    shake:   { enabled: beh.features.shake.enabled,   params: { ...beh.features.shake.params } },
+  };
+}
+
+function detachPointer(cg) {
+  if (!cg) return;
+  _savedPointerFeatures = _snapshotPointerFeatures(cg) ?? _savedPointerFeatures;
+  cg.behaviours = cg.behaviours.filter(b => b.type !== PointerBehavior);
+  cg._pointerState = null;
+}
+
+function initPointerState(cg) {
+  const n = _noiseSlotCount(cg._baseCmds);
+  cg._pointerState = Array.from({ length: n }, () => ({ dx: 0, dy: 0, vx: 0, vy: 0, shakeDx: 0, shakeDy: 0 }));
+}
+
+const POINTER_SPRING_K = 15;    // spring stiffness
+const POINTER_DAMPING  = 0.75;  // per-tick velocity multiplier
+
+const PointerBehavior = {
+  sym: Symbol('pointer'),
+  apply(cg, dt, bCtx, features) {
+    if (P.interactionMode !== 'act' || !features) return;
+    const { repel, attract, shake } = features;
+    if (!repel.enabled && !attract.enabled && !shake.enabled) return;
+    if (!cg._baseCmds) return;
+    if (!cg._pointerState) initPointerState(cg);
+    if (!cg._pointerState) return;
+
+    // Convert screen cursor → glyph-local coords (subtract 36px toolbar offset from Y)
+    const { x: mx, y: my } = canvasToCGLocal(_cursorX, _cursorY - 36, cg);
+    const t      = bCtx.time;
+    const radius = features.radius ?? POINTER_DEFAULT.radius;
+    const ps     = cg._pointerState;
+    let   si     = 0;
+
+    for (const cmd of cg._baseCmds) {
+      let anchorX = null, anchorY = null, anchorSlot = -1;
+      if (cmd.type === 'M' || cmd.type === 'L') {
+        anchorX = cmd.x; anchorY = cmd.y; anchorSlot = si;
+        si++;
+      } else if (cmd.type === 'C') {
+        si += 2;   // skip cp1, cp2
+        anchorX = cmd.x; anchorY = cmd.y; anchorSlot = si;
+        si++;
+      } else if (cmd.type === 'Q') {
+        si++;      // skip cp1
+        anchorX = cmd.x; anchorY = cmd.y; anchorSlot = si;
+        si++;
+      } else {
+        continue;  // Z — no coordinate slots
+      }
+
+      const s   = ps[anchorSlot];
+      const dax = mx - anchorX;
+      const day = my - anchorY;
+      const d   = Math.hypot(dax, day);
+      const f   = d > 0 ? Math.max(0, 1 - d / radius) : 0;
+
+      let targetDx = 0, targetDy = 0;
+      if (repel.enabled && f > 0 && d > 0) {
+        const ux = dax / d, uy = day / d;
+        targetDx -= ux * repel.params.strength * f;
+        targetDy -= uy * repel.params.strength * f;
+      }
+      if (attract.enabled && f > 0 && d > 0) {
+        const ux = dax / d, uy = day / d;
+        targetDx += ux * attract.params.strength * f;
+        targetDy += uy * attract.params.strength * f;
+      }
+
+      // Spring: accelerate toward target, damp velocity, integrate position
+      s.vx += (targetDx - s.dx) * POINTER_SPRING_K * dt;
+      s.vy += (targetDy - s.dy) * POINTER_SPRING_K * dt;
+      s.vx *= Math.pow(POINTER_DAMPING, dt);
+      s.vy *= Math.pow(POINTER_DAMPING, dt);
+      s.dx += s.vx * dt;
+      s.dy += s.vy * dt;
+
+      // Shake: direct sinusoidal displacement — bypasses spring so freq/amp take full effect
+      if (shake.enabled && f > 0) {
+        s.shakeDx = Math.sin(t * shake.params.freq * TAU)       * shake.params.amp * f;
+        s.shakeDy = Math.cos(t * shake.params.freq * TAU * 1.3) * shake.params.amp * f;
+      } else {
+        s.shakeDx = 0;
+        s.shakeDy = 0;
+      }
+    }
+  },
+};
+
+// Switch between Design and Act modes. Clears drag state; resets springs on return to Design.
+function _setInteractionMode(mode) {
+  P.interactionMode = mode;
+  if (mode === 'act') {
+    sel = null; drag = null; bodyDrag = null;
+    canvas.style.cursor = 'default';
+  }
+  // Snap springs back to rest when returning to Design so the glyph is clean for editing
+  if (mode === 'design' && currentCG?._pointerState) {
+    for (const s of currentCG._pointerState) { s.dx = 0; s.dy = 0; s.vx = 0; s.vy = 0; s.shakeDx = 0; s.shakeDy = 0; }
+  }
+  _updateModeButtons?.();
 }
 
 // ── Canvas setup ─────────────────────────────────────────────────────────────
@@ -1078,8 +1262,10 @@ function initCGPath(cg, otFont) {
   cg._noiseState   = null;
   cg._noiseSlots   = null;   // cached slot count — set when noise state is inited
   cg._cachedPeriod = -1;     // force re-stagger on next init
+  cg._pointerState = null;   // reset pointer springs when path changes
   cg._fontStr      = `${cg.size}px "${cg.font}"`;  // cached ctx.font string
   cg._footY = baselineY;  // local Y of the glyph baseline (feet) — for pinFeet dance
+  cg._textX = startX;     // local X origin for text-mode fillText (matches vector centering)
   // Initial anchored map using default threshold; recomputed in attachDance (uses dance param).
   _recomputeBaselineAnchored(cg, cg.size * 0.05);
   // Reset clone display buffers — path changed, reallocated lazily next frame.
@@ -1288,7 +1474,42 @@ function drawCG(cg, dc) {
         perlinActive ? nf.perlin.params : null
       );
     }
-    const cmds = (noiseActive && cg._displayCmds) ? cg._displayCmds : baseCmds;
+    // ── Pointer displacement (Act mode only) ──
+    const ptrBeh = P.interactionMode === 'act' ? getPointerBeh(cg) : null;
+    const ptrF   = ptrBeh?.features;
+    const ptrOn  = !!(ptrF && (ptrF.repel.enabled || ptrF.attract.enabled || ptrF.shake.enabled)
+                      && cg._pointerState);
+    if (ptrOn && cg._displayCmds) {
+      // If noise was inactive, copy _baseCmds → _displayCmds before adding pointer offset
+      if (!noiseActive) {
+        for (let j = 0; j < baseCmds.length; j++) {
+          const src = baseCmds[j], dst = cg._displayCmds[j];
+          dst.x = src.x; dst.y = src.y;
+          if (src.x1 != null) { dst.x1 = src.x1; dst.y1 = src.y1; }
+          if (src.x2 != null) { dst.x2 = src.x2; dst.y2 = src.y2; }
+        }
+      }
+      // Add spring displacements to anchor points in-place (non-anchor slots are always 0)
+      const dispCmds = cg._displayCmds;
+      const ps       = cg._pointerState;
+      let   si       = 0;
+      for (let j = 0; j < baseCmds.length; j++) {
+        const src = baseCmds[j];
+        if (src.type === 'M' || src.type === 'L') {
+          const s = ps[si++];
+          dispCmds[j].x += s.dx + s.shakeDx; dispCmds[j].y += s.dy + s.shakeDy;
+        } else if (src.type === 'C') {
+          si += 2;
+          const s = ps[si++];
+          dispCmds[j].x += s.dx + s.shakeDx; dispCmds[j].y += s.dy + s.shakeDy;
+        } else if (src.type === 'Q') {
+          si++;
+          const s = ps[si++];
+          dispCmds[j].x += s.dx + s.shakeDx; dispCmds[j].y += s.dy + s.shakeDy;
+        }
+      }
+    }
+    const cmds = ((noiseActive || ptrOn) && cg._displayCmds) ? cg._displayCmds : baseCmds;
 
     dc.beginPath();
     for (let ci = 0; ci < cmds.length; ci++) {
@@ -1312,24 +1533,32 @@ function drawCG(cg, dc) {
       dc.stroke();
     }
 
-    // Control points go on overlay only (not in exports/recordings)
-    if (!isExport) drawControlPoints(octx, baseCmds, sel);
+    // Control points: overlay only, and only in Design mode (not Act or exports)
+    if (!isExport && P.interactionMode === 'design') drawControlPoints(octx, baseCmds, sel);
 
   } else if (cg.geometry.type === 'text') {
     // ── filled/stroked text ──
+    // Use the same origin as the vector path (alphabetic baseline at _footY, left edge at _textX)
+    // so switching modes doesn't shift the glyph. Fall back to center/middle if path not yet init'd.
     if (!cg._fontStr) cg._fontStr = `${cg.size}px "${cg.font}"`;
-    dc.font         = cg._fontStr;
-    dc.textAlign    = 'center';
-    dc.textBaseline = 'middle';
+    dc.font = cg._fontStr;
+    if (cg._footY != null) {
+      dc.textAlign    = 'left';
+      dc.textBaseline = 'alphabetic';
+    } else {
+      dc.textAlign    = 'center';
+      dc.textBaseline = 'middle';
+    }
+    const tx = cg._textX ?? 0, ty = cg._footY ?? 0;
     if (P.strokeOn) {
       dc.strokeStyle = P.strokeColor;
       dc.lineWidth   = P.strokeWidth;
       dc.lineJoin    = 'round';
-      dc.strokeText(cg.char, 0, 0);
+      dc.strokeText(cg.char, tx, ty);
     }
     if (P.fillOn) {
       dc.fillStyle = P.fillColor;
-      dc.fillText(cg.char, 0, 0);
+      dc.fillText(cg.char, tx, ty);
     }
 
   } else {
@@ -1379,12 +1608,13 @@ function _snapshotFeatures(beh) {
   return snap;
 }
 
-function spawnCG(char) {
+function spawnCG(char, { applyBehaviors = true } = {}) {
   // Snapshot live behaviour state so the new glyph inherits it
   if (currentCG) {
-    _savedDanceFeatures = _snapshotFeatures(getDanceBeh(currentCG)) ?? _savedDanceFeatures;
-    _savedNoiseFeatures = _snapshotFeatures(getNoiseBeh(currentCG)) ?? _savedNoiseFeatures;
-    _savedClones        = _snapshotClones(currentCG) ?? _savedClones;
+    _savedDanceFeatures   = _snapshotFeatures(getDanceBeh(currentCG))   ?? _savedDanceFeatures;
+    _savedNoiseFeatures   = _snapshotFeatures(getNoiseBeh(currentCG))   ?? _savedNoiseFeatures;
+    _savedClones          = _snapshotClones(currentCG)                  ?? _savedClones;
+    _savedPointerFeatures = _snapshotPointerFeatures(currentCG)         ?? _savedPointerFeatures;
   }
   sel = null; drag = null; bodyDrag = null;
   currentCG = makeCG(char, canvasCX(), canvasCY());
@@ -1392,12 +1622,54 @@ function spawnCG(char) {
   if (otFont && otFont !== 'loading') initCGPath(currentCG, otFont);
   else ensureFont(P.font);
   updateCharDisplay(char);
-  if (danceActive) attachDance(currentCG);
-  if (noiseActive) { attachNoise(currentCG); _syncNoiseFeatureRows?.(); }
-  if (cloneActive) { attachClone(currentCG); _syncClonePanels?.(); }
+  if (applyBehaviors) {
+    if (danceActive)   attachDance(currentCG);
+    if (noiseActive)   { attachNoise(currentCG); _syncNoiseFeatureRows?.(); }
+    if (cloneActive)   { attachClone(currentCG); _syncClonePanels?.(); }
+    if (pointerActive) { attachPointer(currentCG); _syncPointerPanel?.(); }
+  }
 }
 
+// ── Behavior-apply prompt ─────────────────────────────────────────────────────
+const _promptEl    = document.getElementById('behavior-prompt');
+const _promptMsg   = document.getElementById('behavior-prompt-msg');
+const _promptApply = document.getElementById('behavior-prompt-apply');
+const _promptSkip  = document.getElementById('behavior-prompt-skip');
+
+function _showBehaviorPrompt() {
+  const active = [
+    danceActive   && 'Dance',
+    noiseActive   && 'Noise',
+    cloneActive   && 'Clone',
+    pointerActive && 'Pointer',
+  ].filter(Boolean);
+  _promptMsg.textContent = `Apply ${active.join(' + ')} to new glyph?`;
+  _promptEl.classList.add('visible');
+}
+
+function _hideBehaviorPrompt() {
+  _promptEl.classList.remove('visible');
+}
+
+_promptApply.addEventListener('click', () => {
+  _hideBehaviorPrompt();
+  if (!currentCG) return;
+  if (danceActive)   attachDance(currentCG);
+  if (noiseActive)   { attachNoise(currentCG); _syncNoiseFeatureRows?.(); }
+  if (cloneActive)   { attachClone(currentCG); _syncClonePanels?.(); }
+  if (pointerActive) { attachPointer(currentCG); _syncPointerPanel?.(); }
+});
+
+_promptSkip.addEventListener('click', _hideBehaviorPrompt);
+
 function clearCG() {
+  // Snapshot behavior state before discarding so the prompt can restore it
+  if (currentCG) {
+    _savedDanceFeatures   = _snapshotFeatures(getDanceBeh(currentCG))   ?? _savedDanceFeatures;
+    _savedNoiseFeatures   = _snapshotFeatures(getNoiseBeh(currentCG))   ?? _savedNoiseFeatures;
+    _savedClones          = _snapshotClones(currentCG)                  ?? _savedClones;
+    _savedPointerFeatures = _snapshotPointerFeatures(currentCG)         ?? _savedPointerFeatures;
+  }
   sel = null; drag = null; bodyDrag = null;
   currentCG = null;
   updateCharDisplay(null);
@@ -1415,6 +1687,7 @@ function syncCGtoP() {
     currentCG._cachedPeriod      = -1;
     currentCG._fontStr           = null;
     currentCG._baselineAnchored  = null;
+    currentCG._pointerState      = null;
     sel = null;
   }
   currentCG.font          = P.font;
@@ -1482,9 +1755,25 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
   if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') {
-    clearCG(); return;
+    _hideBehaviorPrompt(); clearCG(); return;
   }
-  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { stopAutoRun(); spawnCG(e.key); }
+  if (e.key === 'm' || e.key === 'M') {
+    _setInteractionMode(P.interactionMode === 'design' ? 'act' : 'design');
+    return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+    stopAutoRun();
+    _hideBehaviorPrompt();
+    const hadNoCG = !currentCG;
+    const hasActive = danceActive || noiseActive || cloneActive || pointerActive;
+    if (hadNoCG && hasActive) {
+      // Spawn clean, then ask whether to apply the saved behavior set
+      spawnCG(e.key, { applyBehaviors: false });
+      _showBehaviorPrompt();
+    } else {
+      spawnCG(e.key);
+    }
+  }
 });
 
 // ── Control-point + body interaction ─────────────────────────────────────────
@@ -1501,8 +1790,8 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!currentCG) return;
   const { mx, my } = getCanvasXY(e);
 
-  // Control-point drag takes priority (vector mode only)
-  if (currentCG._baseCmds && currentCG.geometry.type === 'vector') {
+  // Control-point drag takes priority — design mode only
+  if (P.interactionMode === 'design' && currentCG._baseCmds && currentCG.geometry.type === 'vector') {
     const local = canvasToCGLocal(mx, my, currentCG);
     const hit   = hitTestPoints(local.x, local.y, currentCG._baseCmds, HIT_RADIUS / currentCG.scale);
     if (hit) {
@@ -1565,15 +1854,19 @@ canvas.addEventListener('pointermove', (e) => {
     e.preventDefault();
 
   } else {
-    // Hover cursor
-    if (currentCG._baseCmds && currentCG.geometry.type === 'vector') {
-      const local = canvasToCGLocal(mx, my, currentCG);
-      const hit = hitTestPoints(local.x, local.y, currentCG._baseCmds, HIT_RADIUS / currentCG.scale);
-      canvas.style.cursor = hit ? 'pointer' : 'default';
+    // Hover cursor — only show edit cursors in Design mode
+    if (P.interactionMode === 'design') {
+      if (currentCG._baseCmds && currentCG.geometry.type === 'vector') {
+        const local = canvasToCGLocal(mx, my, currentCG);
+        const hit = hitTestPoints(local.x, local.y, currentCG._baseCmds, HIT_RADIUS / currentCG.scale);
+        canvas.style.cursor = hit ? 'pointer' : 'default';
+      } else {
+        const bdx = mx - currentCG.x, bdy = my - currentCG.y;
+        canvas.style.cursor = Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)
+          ? 'grab' : 'default';
+      }
     } else {
-      const bdx = mx - currentCG.x, bdy = my - currentCG.y;
-      canvas.style.cursor = Math.sqrt(bdx * bdx + bdy * bdy) < bodyHitRadius(currentCG)
-        ? 'grab' : 'default';
+      canvas.style.cursor = 'default';
     }
   }
 });
@@ -1654,7 +1947,12 @@ function makeBehRow(label, cbId, checkedGetter, checkedSetter, min, max, step, s
     range.value = v; sliderSetter(v); num.value = fmt(v);
   });
   row.appendChild(cb); row.appendChild(lbl); row.appendChild(range); row.appendChild(num);
-  return { row, cb };
+  const result = { row, cb };
+  result.sync = () => {
+    cb.checked = checkedGetter();
+    const v = sliderGetter(); range.value = v; num.value = fmt(v);
+  };
+  return result;
 }
 
 function makeSlider(label, min, max, step, getter, setter) {
@@ -2067,6 +2365,7 @@ function _makeFileData(name) {
       danceActive,
       noiseActive,
       cloneActive,
+      pointerActive,
       dance: (() => {
         const beh = getDanceBeh(currentCG);
         if (!beh) return null;
@@ -2093,6 +2392,17 @@ function _makeFileData(name) {
             independent: { enabled: _globalNoise.noise.independent.enabled, params: { ..._globalNoise.noise.independent.params } },
             perlin:      { enabled: _globalNoise.noise.perlin.enabled,      params: { ..._globalNoise.noise.perlin.params } },
           },
+        };
+      })(),
+      pointer: (() => {
+        const beh = getPointerBeh(currentCG);
+        if (!beh) return null;
+        const f = beh.features;
+        return {
+          radius:  f.radius,
+          repel:   { enabled: f.repel.enabled,   params: { ...f.repel.params } },
+          attract: { enabled: f.attract.enabled, params: { ...f.attract.params } },
+          shake:   { enabled: f.shake.enabled,   params: { ...f.shake.params } },
         };
       })(),
     },
@@ -2252,9 +2562,11 @@ function loadStateFromData(data) {
   Object.assign(P, data.settings);
   // Restore behaviour flags — must happen before rebuildPanel so buildUI reads correct state
   if (data.behaviour) {
-    danceActive = !!data.behaviour.danceActive;
-    noiseActive = !!data.behaviour.noiseActive;
-    cloneActive = !!data.behaviour.cloneActive;
+    danceActive   = !!data.behaviour.danceActive;
+    noiseActive   = !!data.behaviour.noiseActive;
+    cloneActive   = !!data.behaviour.cloneActive;
+    pointerActive = !!data.behaviour.pointerActive;
+    if (data.behaviour.pointer) _savedPointerFeatures = { ...data.behaviour.pointer };
     if (data.behaviour.clone?.clones) {
       _savedClones = data.behaviour.clone.clones;
       _cloneCount  = data.behaviour.clone.count ?? _savedClones.length;
@@ -2309,6 +2621,8 @@ function loadStateFromData(data) {
     // Sync clone panel displays (sliders + checkboxes) to the restored clone state
     if (cloneActive) _syncClonePanels?.();
     _syncGlobalNoisePanel?.();
+    // Sync pointer panel
+    if (pointerActive) _syncPointerPanel?.();
   }
   if (data.baseCmds && currentCG) {
     currentCG._baseCmds          = data.baseCmds.map(c => ({ ...c }));
@@ -2349,7 +2663,11 @@ function stopAutoRun() {
 
 function _autoStep() {
   if (!_autoRunning) return;
-  if (_autoIndex >= AUTO_ALPHABET.length) _autoIndex = 0;  // loop
+  if (_autoIndex >= AUTO_ALPHABET.length) {
+    _autoIndex = 0;
+    _autoUppercase = !_autoUppercase;   // flip case at the end of each pass
+    if (_caseBtn) { _caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc'; _caseBtn.classList.toggle('active', _autoUppercase); }
+  }
 
   const prevX        = currentCG ? currentCG.homeX : null;
   const prevY        = currentCG ? currentCG.homeY : null;
@@ -2619,6 +2937,26 @@ function syncToolbar() {
 
 function buildUI() {
   const panel = document.getElementById('panel');
+
+  // ── Interaction mode toggle (Design / Act) — first element, above all sections ──
+  const modeBar = document.createElement('div');
+  modeBar.id = 'mode-toggle';
+  const designBtn = document.createElement('button');
+  designBtn.className = 'tog-btn' + (P.interactionMode === 'design' ? ' active' : '');
+  designBtn.textContent = 'Design';
+  designBtn.title = 'Edit control points (M to toggle)';
+  designBtn.addEventListener('click', () => _setInteractionMode('design'));
+  const actBtn = document.createElement('button');
+  actBtn.className = 'tog-btn' + (P.interactionMode === 'act' ? ' active' : '');
+  actBtn.textContent = 'Act';
+  actBtn.title = 'Pointer reactions active (M to toggle)';
+  actBtn.addEventListener('click', () => _setInteractionMode('act'));
+  modeBar.append(designBtn, actBtn);
+  panel.appendChild(modeBar);
+  _updateModeButtons = () => {
+    designBtn.classList.toggle('active', P.interactionMode === 'design');
+    actBtn.classList.toggle('active',    P.interactionMode === 'act');
+  };
 
   // ── Colour (background only — font/fill/stroke are in the toolbar) ──
   const colourSec = makeSection('Colour');
@@ -2890,6 +3228,104 @@ function buildUI() {
   behSec.bd.appendChild(cloneSub.hd);
   behSec.bd.appendChild(cloneSub.bd);
 
+  // ── Behaviour → Pointer ──
+  const ptrSub = makeSubSection('Pointer', false);
+
+  // Embed Pointer on/off checkbox in the subsection header (same pattern as Dance/Noise/Clone)
+  _pointerCb = document.createElement('input');
+  _pointerCb.type = 'checkbox'; _pointerCb.id = 'cb-pointer'; _pointerCb.checked = pointerActive;
+  _pointerCb.style.cssText = 'cursor:pointer; accent-color:#7af; margin-right:4px;';
+  _pointerCb.addEventListener('click', e => e.stopPropagation());
+  ptrSub.hd.insertBefore(_pointerCb, ptrSub.hd.firstChild);
+
+  // Shared radius slider — applies to all three reactions
+  const ptrRadiusRow = makeSlider('Radius', 50, 600, 1,
+    () => getPointerBeh(currentCG)?.features.radius ?? POINTER_DEFAULT.radius,
+    v  => { const f = getPointerBeh(currentCG)?.features; if (f) f.radius = v; }
+  );
+  ptrSub.bd.appendChild(ptrRadiusRow);
+
+  // Helper: auto-enable Pointer if a reaction is turned on while Pointer is off
+  function _ptrAutoEnable() {
+    if (!getPointerBeh(currentCG)) {
+      pointerActive = true;
+      if (_pointerCb) _pointerCb.checked = true;
+      if (currentCG) attachPointer(currentCG);
+    }
+  }
+
+  // Repel row — [checkbox] Repel [strength slider]
+  const ptrRepelRow = makeBehRow('Repel', 'cb-ptr-repel',
+    () => !!getPointerBeh(currentCG)?.features.repel?.enabled,
+    v  => { _ptrAutoEnable(); const f = getPointerBeh(currentCG)?.features; if (f) f.repel.enabled = v; },
+    0, 300, 1,
+    () => getPointerBeh(currentCG)?.features.repel?.params.strength ?? POINTER_DEFAULT.repel.params.strength,
+    v  => { const f = getPointerBeh(currentCG)?.features; if (f) f.repel.params.strength = v; }
+  );
+  ptrSub.bd.appendChild(ptrRepelRow.row);
+
+  // Attract row — [checkbox] Attract [strength slider]
+  const ptrAttractRow = makeBehRow('Attract', 'cb-ptr-attract',
+    () => !!getPointerBeh(currentCG)?.features.attract?.enabled,
+    v  => { _ptrAutoEnable(); const f = getPointerBeh(currentCG)?.features; if (f) f.attract.enabled = v; },
+    0, 300, 1,
+    () => getPointerBeh(currentCG)?.features.attract?.params.strength ?? POINTER_DEFAULT.attract.params.strength,
+    v  => { const f = getPointerBeh(currentCG)?.features; if (f) f.attract.params.strength = v; }
+  );
+  ptrSub.bd.appendChild(ptrAttractRow.row);
+
+  // Shake — checkbox + label (beh-row style) + two param sliders below
+  const ptrShakeWrap = document.createElement('div');
+  ptrShakeWrap.style.cssText = 'margin:5px 0';
+  const ptrShakeHd = document.createElement('div');
+  ptrShakeHd.className = 'beh-row';
+  const ptrShakeCb = document.createElement('input');
+  ptrShakeCb.type = 'checkbox'; ptrShakeCb.id = 'cb-ptr-shake';
+  ptrShakeCb.style.cssText = 'cursor:pointer;accent-color:#7af;flex-shrink:0';
+  ptrShakeCb.addEventListener('change', () => {
+    _ptrAutoEnable();
+    const f = getPointerBeh(currentCG)?.features; if (f) f.shake.enabled = ptrShakeCb.checked;
+  });
+  const ptrShakeLbl = document.createElement('label');
+  ptrShakeLbl.htmlFor = 'cb-ptr-shake'; ptrShakeLbl.className = 'beh-label';
+  ptrShakeLbl.textContent = 'Shake'; ptrShakeLbl.style.cursor = 'pointer';
+  ptrShakeHd.append(ptrShakeCb, ptrShakeLbl);
+  ptrShakeWrap.appendChild(ptrShakeHd);
+
+  const ptrShakeParams = document.createElement('div');
+  ptrShakeParams.style.cssText = 'padding-left:16px';
+  const ptrShakeFreqRow = makeSlider('Freq (Hz)', 1, 20, 0.5,
+    () => getPointerBeh(currentCG)?.features.shake?.params.freq ?? POINTER_DEFAULT.shake.params.freq,
+    v  => { const f = getPointerBeh(currentCG)?.features; if (f) f.shake.params.freq = v; }
+  );
+  const ptrShakeAmpRow = makeSlider('Amplitude', 0, 100, 1,
+    () => getPointerBeh(currentCG)?.features.shake?.params.amp ?? POINTER_DEFAULT.shake.params.amp,
+    v  => { const f = getPointerBeh(currentCG)?.features; if (f) f.shake.params.amp = v; }
+  );
+  ptrShakeParams.append(ptrShakeFreqRow, ptrShakeAmpRow);
+  ptrShakeWrap.appendChild(ptrShakeParams);
+  ptrSub.bd.appendChild(ptrShakeWrap);
+
+  _pointerCb.addEventListener('change', () => {
+    pointerActive = _pointerCb.checked;
+    if (pointerActive) { if (currentCG) attachPointer(currentCG); }
+    else               { if (currentCG) detachPointer(currentCG); }
+    _syncPointerPanel?.();
+  });
+
+  _syncPointerPanel = () => {
+    if (_pointerCb) _pointerCb.checked = pointerActive;
+    ptrRadiusRow.sync();
+    ptrRepelRow.sync();
+    ptrAttractRow.sync();
+    ptrShakeCb.checked = !!getPointerBeh(currentCG)?.features.shake?.enabled;
+    ptrShakeFreqRow.sync(); ptrShakeAmpRow.sync();
+  };
+  _syncPointerPanel();
+
+  behSec.bd.appendChild(ptrSub.hd);
+  behSec.bd.appendChild(ptrSub.bd);
+
   panel.appendChild(behSec.hd);
   panel.appendChild(behSec.bd);
 
@@ -2934,17 +3370,17 @@ function buildUI() {
     if (v >= 1) _autoDwell = v;
   });
 
-  const caseBtn = document.createElement('button');
-  caseBtn.className   = 'tog-btn' + (_autoUppercase ? ' active' : '');
-  caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
-  caseBtn.style.cssText = 'flex:0 0 auto;padding:3px 7px;font-size:10px;text-transform:none';
-  caseBtn.addEventListener('click', () => {
-    _autoUppercase      = !_autoUppercase;
-    caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
-    caseBtn.classList.toggle('active', _autoUppercase);
+  _caseBtn = document.createElement('button');
+  _caseBtn.className   = 'tog-btn' + (_autoUppercase ? ' active' : '');
+  _caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
+  _caseBtn.style.cssText = 'flex:0 0 auto;padding:3px 7px;font-size:10px;text-transform:none';
+  _caseBtn.addEventListener('click', () => {
+    _autoUppercase       = !_autoUppercase;
+    _caseBtn.textContent = _autoUppercase ? 'ABC' : 'abc';
+    _caseBtn.classList.toggle('active', _autoUppercase);
   });
 
-  autoRow.append(dwellLabel, dwellInput, caseBtn);
+  autoRow.append(dwellLabel, dwellInput, _caseBtn);
   actSec.bd.appendChild(autoRow);
 
   panel.appendChild(actSec.hd);
@@ -3053,10 +3489,13 @@ function loadPreset(spec) {
     _globalNoise._noiseState = null; _globalNoise._displayCmds = null;
     _syncGlobalNoisePanel?.();
   }
-  danceActive = !!spec.danceActive;
-  noiseActive = !!spec.noiseActive;
-  if (_danceCb) _danceCb.checked = danceActive;
-  if (_noiseCb) _noiseCb.checked = noiseActive;
+  danceActive   = !!spec.danceActive;
+  noiseActive   = !!spec.noiseActive;
+  pointerActive = !!spec.pointerActive;
+  if (_danceCb)   _danceCb.checked   = danceActive;
+  if (_noiseCb)   _noiseCb.checked   = noiseActive;
+  if (_pointerCb) _pointerCb.checked = pointerActive;
+  if (spec.pointer) _savedPointerFeatures = { ...spec.pointer };
   if (spec.char) spawnCG(spec.char);
 }
 

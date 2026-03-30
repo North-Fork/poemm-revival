@@ -94,6 +94,64 @@ clones. Works independently of workstream 3 (global noise) but complements it we
 
 ---
 
+## Architecture — Abecedarium → ComplexFont → Glyphkicker
+
+### Role of Abecedarium
+Abecedarium is the **workshopping tool for ComplexFonts**. You work one letter at a time,
+exploring outline behavior (Dance, Noise, Pointer reactions, Clone layers). The output is a
+collection of per-character `.abcd.json` files. A separate **bundle step** (future workstream)
+assembles these into a `.ctf` (ComplexType Font) package loadable by Glyphkicker.
+
+### Geometry: Option C — Layered
+A ComplexFont glyph has **two independent geometry layers**:
+1. **Outline layer** — bezier path + behavior recipe (Dance, Noise, Pointer, etc.). This is
+   what Abecedarium workshopping is entirely focused on right now.
+2. **Particle layer** — particle cloud seeded from the outline + particle-specific behaviors
+   (attractors, force fields, repellers). Future Abecedarium workstream; not started yet.
+
+Both layers animate independently. The CTF format must accommodate both even before the
+particle layer is implemented in Abecedarium.
+
+**Note:** The existing `ComplexType-Codex-Plan/` draft spec treats particles as the sole
+geometry type. That draft is exploratory and will be superseded by what Abecedarium
+workshops into existence. Do not treat it as authoritative.
+
+### Behavior naming convention
+**Abecedarium is the canonical source of behavior names.** Glyphkicker's behavior registry
+will be updated to match Abecedarium naming — not the other way around. Current behavior
+names: `dance` (spin, pulse, drift, pinFeet, plantFeet), `noise` (independent, perlin),
+`clone`, `pointer` (repel, attract, shake).
+
+As new behaviors are added, think about dual-layer semantics: some behaviors will be
+outline-only, some particle-only, some conceptually shared (e.g. `repel-pointer` exists
+in both layers but with different mechanics — anchor spring displacement vs force-field
+repulsion). Naming should eventually reflect this, but no rush.
+
+Panel names (e.g. "Shake", "Plant feet") will need slight formalization for the CTF
+behavior registry (e.g. `shake`, `plant-feet`). Flag any friction at registry time.
+
+### Bundle step (future workstream)
+When ready to export a ComplexFont from Abecedarium:
+- Input: N × `.abcd.json` (one per character)
+- Resolve: font-level metadata (base font, unitsPerEm, scale)
+- Output: `.ctf` package containing:
+  - `manifest.json` — ctfVersion, packageId
+  - `fontinfo.json` — name, base font reference
+  - `charmap.json` — per-character outline paths + behavior recipes
+  - `/assets/` — embedded path edits if any
+
+This is a self-contained future workstream that does not affect current Abecedarium
+development. Abecedarium continues single-character output (`.abcd.json`) until bundle
+step is implemented.
+
+### Portability principle (for all future Abecedarium work)
+When building new behaviors or modifying the rendering pipeline, keep the behavior
+*logic* isolated from Abecedarium-specific *wiring* (global cursor vars, `P.interactionMode`,
+`drawCG` internals). The wiring is expected to differ; the logic should be portable.
+See portability debt notes under each implemented behavior.
+
+---
+
 ## Backlog
 
 ---
@@ -126,6 +184,34 @@ All four workstreams from 2026-03-18 are complete. Summary of what was built:
 - Phase slider per clone: 0 → 5s, step 0.05
 - **Stagger button:** distributes `perlinPhase` evenly across active clones; step input controls increment (default 0.2s)
 
+## 2026-03-19T18:17 — Mouse-Reactive Glyphs (Design / Act Modes): Implemented
+
+### What was built
+- `P.interactionMode` ('design' | 'act') with a two-button toggle bar at the top of the panel; `m` key shortcut
+- Act mode: control-point overlay hidden, drag disabled; Design mode: all editing restored, pointer springs snap to rest
+- `_pointerState` buffer on each `cg`: array of `{ dx, dy, vx, vy }` per slot (same indexing as `_noiseState`)
+- `PointerBehavior` singleton — runs in physics tick via `AgentEngine`; spring-based reactions for anchor points only
+- Three reactions: **Repel** (strength slider), **Attract** (strength slider), **Shake** (freq + amplitude sliders); shared Radius slider
+- Pointer displacement applied in `drawCG()` on top of noise-displaced `_displayCmds`; `_baseCmds` stays pristine
+- Pointer panel subsection (collapsed by default): Radius → Repel → Attract → Shake
+- Save/Load: `pointerActive` + `pointer` key in `.abcd.json`; `loadPreset()` extended
+
+### Porting note — Glyphkicker integration
+**The intent is that all Abecedarium behaviour work (including PointerBehavior) will ultimately be ported into the Glyphkicker editor.** All new behaviours should be designed with clean portability in mind. See portability debt items below.
+
+### Portability debt
+The following wiring is Abecedarium-specific and must be refactored before porting PointerBehavior to Glyphkicker:
+
+1. **Cursor input from globals** — `PointerBehavior.apply()` reads `_cursorX, _cursorY - 36` (module-level globals, Abecedarium toolbar offset hardcoded). Fix: read from `bCtx.inputState.pointerX/Y`, which is already how Glyphkicker's `bCtx` works.
+
+2. **Mode gate inside the behavior** — `P.interactionMode !== 'act'` check bakes in Abecedarium's mode system. Fix: move the gate to the caller (or pass a flag on `bCtx`), so the behavior itself is mode-agnostic.
+
+3. **Rendering path embedded in `drawCG()`** — The pointer displacement loop lives inside `drawCG()` rather than being a standalone `applyPointerState(baseCmds, pointerState, displayCmds)` function parallel to `applyNoiseState`. Fix: extract it so it can be called independently from any rendering pipeline.
+
+These are small targeted refactors. Consider doing them before the next time PointerBehavior is significantly extended, to avoid deeper coupling.
+
+---
+
 ### Additional changes
 - Max clone count raised 10 → 15; `_cloneCountInp.max = 15`
 - Dance, Noise, Clone subsections start collapsed (`startOpen = false`)
@@ -139,5 +225,54 @@ All four workstreams from 2026-03-18 are complete. Summary of what was built:
   after refactor from `_makeCloneNoiseFeatureRow`; removed
 - **All panels blank** — `shared/font-toolbar.js` was missing from disk (broken symlink target);
   `window.FontToolbar` undefined → `buildToolbar()` threw → `buildUI()` never ran; recreated file
+
+---
+
+## 2026-03-29 — Pointer Fixes + UX improvements
+
+### 1. Pointer spring: frame-rate-independent damping ✓
+`POINTER_DAMPING` (0.75) was multiplied directly each tick, making effective damping
+`0.75^60 ≈ 0.000001` per second — effectively overdamped. Fixed to `Math.pow(POINTER_DAMPING, dt)`
+so 0.75 is now correctly interpreted as "fraction of velocity retained per second."
+Side effect: Repel and Attract are visibly snappier.
+
+### 2. Shake: direct displacement (not spring-based) ✓
+Even with correct damping, a spring with K=15 cannot track an 8 Hz sinusoidal target —
+gain at that frequency is too low (~8% of target amplitude). Fix: Shake is no longer fed
+into the spring as a target. Instead it writes `shakeDx / shakeDy` directly to each
+`_pointerState` slot each tick. `drawCG` applies `s.dx + s.shakeDx` (spring + shake sum).
+Repel/Attract remain spring-based for their smooth follow feel.
+`_pointerState` slots now carry `{ dx, dy, vx, vy, shakeDx, shakeDy }`.
+
+### 3. Behavior-apply prompt ✓
+When the canvas is empty (after delete/escape) and at least one behavior is active,
+typing a new letter now shows a banner: **"Apply [Dance/Noise/etc.] to new glyph? [Apply] [Start fresh]"**
+- **Apply**: attaches all active behaviors with their saved params
+- **Start fresh**: spawns the glyph clean; active flags remain on for the next letter
+
+Implementation:
+- `spawnCG` accepts `{ applyBehaviors: false }` to suppress attachment
+- `clearCG` now snapshots all four behaviors (Dance/Noise/Clone/Pointer) before discarding,
+  so the prompt's Apply always has the freshest state
+- `_snapshotPointerFeatures(cg)` extracted as a standalone helper (was inlined in `detachPointer`)
+- `#behavior-prompt` div + CSS added to HTML; shown/hidden via `.visible` class
+
+### 4. abcde: Pointer settings no longer revert on second run ✓
+**Bug:** Stop abcde, change Pointer params, restart → settings revert to those from the
+first run. **Root cause:** `spawnCG` snapshots Dance/Noise/Clone from the outgoing glyph
+on each letter swap, but never snapshotted Pointer — so `_savedPointerFeatures` was frozen
+at the value from the original `attachPointer` call. **Fix:** Added
+`_savedPointerFeatures = _snapshotPointerFeatures(currentCG) ?? _savedPointerFeatures`
+to `spawnCG`, mirroring the existing pattern for the other three behaviors.
+
+### 5. Text ↔ Vector mode switch no longer shifts glyph ✓
+**Bug:** Switching render mode caused the glyph to jump position.
+**Root cause:** Vector mode positions the path with `baselineY = (ascender + descender) / 2 * scale`
+as the y-origin, while Text mode used `textBaseline = 'middle'` which the browser computes
+differently (different font metrics table).
+**Fix:** Text mode now uses `textBaseline = 'alphabetic'` and draws at `(cg._textX, cg._footY)` —
+the same origin as the vector path. `cg._textX = startX` (= `−adv/2`) stored in `initCGPath`
+alongside the existing `cg._footY = baselineY`. Falls back to `center/middle` at `(0,0)` if
+path has not yet been initialized.
 
 
